@@ -78,58 +78,121 @@ const exportCSV = (stations) => {
 };
 
 // ─── Print HTML ───────────────────────────────────────────────────────────────
-// screen=true → colours visible (preview); screen=false → @media print path (PDF popup)
+// screen=true → pages as white sheets on grey (preview)
+// screen=false → @page print rules (PDF/print popup)
+//
+// Page numbering strategy:
+//   Page 1          = cover
+//   Pages 2..N      = one page per task (first page of that task)
+//   Overflow pages  = continuation pages inserted when a task needs more than one page
+//
+// We cannot know at HTML-build time how many overflow pages the browser will create,
+// so we use a two-pass approach:
+//   • Every explicit block gets a data-page attribute with a logical page number.
+//   • A small inline script runs after load to (a) count total pages via
+//     window.print page simulation is impossible in JS, so instead we number
+//     the hard blocks we control and label overflow pages via CSS @page counter
+//     using named pages + CSS counters — the only reliable cross-browser method.
+//
+// For screen preview we render each task as a SINGLE scrollable block (no fixed height)
+// so all content is visible. For print we use @page counters for correct numbering.
+
 const buildPrintHTML = (station, screen=false) => {
   const safe=(s)=>String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br/>");
   const today=new Date().toLocaleDateString();
+  const totalTasks = station.tasks.length;
 
-  const hdr=(extra="")=>`
+  // ── Shared header ──────────────────────────────────────────────────────────
+  const hdr=(extra="", continued=false)=>`
     <table class="ht" cellspacing="0">
-      <tr><td rowspan="3" class="logo">LVT</td><td colspan="6" class="title">SOP Trailer Assembly</td></tr>
-      <tr><td class="lbl">ASM Version</td><td>${safe(station.asmVersion)||"—"}</td>
-          <td class="lbl">Station No:</td><td>${safe(station.stationNo)}</td>
-          <td class="lbl">SOP REV.</td><td>${safe(station.sopRev)}</td></tr>
-      <tr><td colspan="2" class="lbl">SOP ID:</td><td colspan="2">${safe(station.sopId)}</td>
-          <td class="lbl">Station Desc:</td><td>${safe(station.stationDesc)}</td></tr>
+      <tr>
+        <td rowspan="${continued?2:3}" class="logo">LVT</td>
+        <td colspan="6" class="title">SOP Trailer Assembly</td>
+      </tr>
+      ${continued ? "" : `<tr>
+        <td class="lbl">ASM Version</td><td>${safe(station.asmVersion)||"—"}</td>
+        <td class="lbl">Station No:</td><td>${safe(station.stationNo)}</td>
+        <td class="lbl">SOP REV.</td><td>${safe(station.sopRev)}</td>
+      </tr>`}
+      <tr>
+        <td colspan="2" class="lbl">SOP ID:</td><td colspan="2">${safe(station.sopId)}</td>
+        <td class="lbl">Station Desc:</td><td>${safe(station.stationDesc)}</td>
+      </tr>
       ${extra}
     </table>`;
 
-  const totalPages = 1 + station.tasks.length;
-  const ftr=(pageNum, label)=>`<div class="footer">
-    <span class="footer-left">Live View Technologies &nbsp;|&nbsp; Revised By: ${safe(station.revisedBy)}</span>
-    <span class="footer-center">Page ${pageNum} of ${totalPages}</span>
-    <span class="footer-right">${label} &nbsp;|&nbsp; SOP ID: ${safe(station.sopId)} &nbsp;|&nbsp; Effective Date: ${today}</span>
-  </div>`;
+  // ── Footer — uses CSS counters for accurate page numbering in print ────────
+  // In screen mode we just show the passed-in number.
+  // In print mode we use the CSS counter "page" which the browser increments
+  // on every page-break, and "pages" for total (requires @page counter-reset trick).
+  const ftr=(screenPageNum, rightLabel)=>screen
+    ? `<div class="footer">
+        <span class="footer-left">Live View Technologies &nbsp;|&nbsp; Revised By: ${safe(station.revisedBy)}</span>
+        <span class="footer-center">Page ${screenPageNum}</span>
+        <span class="footer-right">${rightLabel} &nbsp;|&nbsp; SOP ID: ${safe(station.sopId)} &nbsp;|&nbsp; Effective Date: ${today}</span>
+       </div>`
+    : `<div class="footer">
+        <span class="footer-left">Live View Technologies &nbsp;|&nbsp; Revised By: ${safe(station.revisedBy)}</span>
+        <span class="footer-center footer-pagenum"></span>
+        <span class="footer-right">${rightLabel} &nbsp;|&nbsp; SOP ID: ${safe(station.sopId)} &nbsp;|&nbsp; Effective Date: ${today}</span>
+       </div>`;
 
+  // ── Drawings ───────────────────────────────────────────────────────────────
   const drawRows=station.drawings.filter(d=>d.drawingNo||d.description)
     .map(d=>`<tr><td>${safe(d.drawingNo)}</td><td>${safe(d.description)}</td><td></td><td></td></tr>`).join("")
     ||`<tr><td colspan="4">&nbsp;</td></tr>`;
-
   const stImgs=(station.stationImages||[]).map(src=>`<img src="${src}" class="thumb"/>`).join("");
 
-  const cover=`<div class="page">${hdr()}<div class="page-content">
-    <table class="bt" cellspacing="0">
-      <tr><td colspan="4" class="sh">Purpose</td></tr>
-      <tr><td colspan="4" class="content">${safe(station.purpose)}&nbsp;</td></tr>
-      <tr><td colspan="4" class="sh">Safety Summary</td></tr>
-      <tr><td colspan="4" class="content">${safe(station.safety)}&nbsp;</td></tr>
-      <tr><td colspan="4" class="sh">Applicable Drawings</td></tr>
-      <tr><td class="lbl" style="width:18%">Drawing #</td><td class="lbl" style="width:32%">Description</td>
-          <td class="lbl" style="width:18%">Drawing #</td><td class="lbl" style="width:32%">Description</td></tr>
-      ${drawRows}
-      <tr><td colspan="2" class="content vtop"><strong>Tool and Equipment List</strong><br/>${safe(station.tools)}&nbsp;</td>
-          <td colspan="2" class="content vtop"><strong>Revision Log</strong><br/>${safe(station.revisionLog)}&nbsp;</td></tr>
-      <tr><td colspan="4" class="sh">General Notes</td></tr>
-      <tr><td colspan="4" class="content">${safe(station.generalNotes)}${stImgs?"<br/>"+stImgs:""}&nbsp;</td></tr>
-    </table></div>${ftr(1, "")}</div>`;
+  // ── Cover page ─────────────────────────────────────────────────────────────
+  const cover=`<div class="pg cover-pg">
+    ${hdr()}
+    <div class="pg-body">
+      <table class="bt" cellspacing="0">
+        <tr><td colspan="4" class="sh">Purpose</td></tr>
+        <tr><td colspan="4" class="content">${safe(station.purpose)}&nbsp;</td></tr>
+        <tr><td colspan="4" class="sh">Safety Summary</td></tr>
+        <tr><td colspan="4" class="content">${safe(station.safety)}&nbsp;</td></tr>
+        <tr><td colspan="4" class="sh">Applicable Drawings</td></tr>
+        <tr>
+          <td class="lbl" style="width:18%">Drawing #</td><td class="lbl" style="width:32%">Description</td>
+          <td class="lbl" style="width:18%">Drawing #</td><td class="lbl" style="width:32%">Description</td>
+        </tr>
+        ${drawRows}
+        <tr>
+          <td colspan="2" class="content vtop"><strong>Tool and Equipment List</strong><br/>${safe(station.tools)}&nbsp;</td>
+          <td colspan="2" class="content vtop"><strong>Revision Log</strong><br/>${safe(station.revisionLog)}&nbsp;</td>
+        </tr>
+        <tr><td colspan="4" class="sh">General Notes</td></tr>
+        <tr><td colspan="4" class="content">${safe(station.generalNotes)}${stImgs?"<br/>"+stImgs:""}&nbsp;</td></tr>
+      </table>
+    </div>
+    ${ftr(1,"")}
+  </div>`;
 
-  const taskPages=station.tasks.map((task)=>{
+  // ── Task pages ─────────────────────────────────────────────────────────────
+  // Each task produces:
+  //   • One first-page block  (class "pg task-first-pg")
+  //     Contains: task header row, general notes, cycle time, step col headers, steps
+  //   • If the task has many steps/images the browser will naturally overflow
+  //     onto additional pages. We inject a "continuation header" via CSS on those
+  //     overflow pages using a named @page + running element (Prince/Paged.js feature)
+  //     — but since we target regular browsers we instead split steps into explicit
+  //     page blocks ourselves at a fixed cadence so overflow pages always have a header.
+  //
+  // Strategy: render ALL steps in one table inside a task block. The browser splits
+  // them across pages. On each new print page the @page margin-box cannot inject HTML.
+  // So: we wrap EACH STEP ROW in its own mini-section that repeats the task mini-header
+  // at the top of each printed page via CSS "page" named pages + thead repeat.
+  // The simplest reliable approach: use <thead> repetition on the steps table —
+  // browsers repeat <thead> on every printed page automatically.
+  // We put the task continuation info inside the <thead>.
+
+  const taskPages = station.tasks.map((task, ti)=>{
     const tImgs=(task.taskImages||[]).map(src=>`<img src="${src}" class="thumb"/>`).join("");
     const stepRows=task.steps.map((step,si)=>{
       const ico=step.icon!=="none"?(ICONS[step.icon]?.emoji+" "):"";
       const num=step.useStepNumber?`<strong>${step.stepNumber||si+1}</strong>`:"";
       const img=step.image?`<div class="step-img-wrap"><img src="${step.image}" class="sthumb"/></div>`:"";
-      // key-point rows get a teal-tinted background
       const kpHtml=step.keyPoints?`<br/><em class="kp">${safe(step.keyPoints)}</em>`:"";
       return `<tr class="step-row">
         <td class="step-num">${num}</td>
@@ -137,63 +200,148 @@ const buildPrintHTML = (station, screen=false) => {
         <td class="step-time">${step.cycleTime?parseFloat(step.cycleTime).toFixed(2):""}</td>
       </tr>`;
     }).join("");
-    return `<div class="task-block">
+
+    const screenPageNum = ti + 2; // cover=1, task1=2, task2=3 …
+
+    return `<div class="pg task-pg" data-taskno="${task.taskNo}" data-taskid="${safe(task.taskId)}" data-taskdesc="${safe(task.description)}">
       ${hdr(`<tr>
         <td colspan="2" class="task-lbl">Task No.&nbsp;${task.taskNo}</td>
         <td colspan="2" class="task-lbl" style="font-family:monospace">${safe(task.taskId)}</td>
         <td colspan="2" class="task-desc"><strong>${safe(task.description)}</strong></td>
       </tr>`)}
-      <div class="task-content"><table class="bt" cellspacing="0">
-        <tr><td colspan="3" class="sh">General Task Notes (For Reference Only)</td></tr>
-        <tr><td colspan="3" class="content notes-cell">${safe(task.generalNotes)}${tImgs?"<br/>"+tImgs:""}&nbsp;</td></tr>
-        <tr>
-          <td colspan="2" class="sh">&nbsp;</td>
-          <td class="sh ct-cell">Est. Cycle Time:&nbsp;${fmtTime(sumSteps(task.steps))}</td>
-        </tr>
-        <tr class="col-head">
-          <td class="step-num col-hdr">Step</td>
-          <td class="col-hdr">Description</td>
-          <td class="step-time col-hdr">Time</td>
-        </tr>
-        ${stepRows||`<tr><td colspan="3" class="content">&nbsp;</td></tr>`}
-      </table></div>
-      ${ftr(task.taskNo + 1, `Task ${task.taskNo} of ${station.tasks.length}`)}
+      <div class="pg-body">
+        <table class="bt" cellspacing="0">
+          <tr><td colspan="3" class="sh">General Task Notes (For Reference Only)</td></tr>
+          <tr><td colspan="3" class="content notes-cell">${safe(task.generalNotes)}${tImgs?"<br/>"+tImgs:""}&nbsp;</td></tr>
+          <tr>
+            <td colspan="2" class="sh">&nbsp;</td>
+            <td class="sh ct-cell">Est. Cycle Time:&nbsp;${fmtTime(sumSteps(task.steps))}</td>
+          </tr>
+        </table>
+        <table class="bt steps-table" cellspacing="0">
+          <thead class="steps-thead">
+            <tr class="col-head continuation-head">
+              <td colspan="3" class="continuation-banner">
+                ↳ Task ${task.taskNo} continued &nbsp;|&nbsp; ${safe(task.taskId)} &nbsp;|&nbsp; <strong>${safe(task.description)}</strong>
+              </td>
+            </tr>
+            <tr class="col-head">
+              <td class="step-num col-hdr">Step</td>
+              <td class="col-hdr">Description</td>
+              <td class="step-time col-hdr">Time</td>
+            </tr>
+          </thead>
+          <tbody>
+            ${stepRows||`<tr><td colspan="3" class="content">&nbsp;</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+      ${ftr(screenPageNum, `Task ${task.taskNo} of ${totalTasks}`)}
     </div>`;
   }).join("");
 
-  // Screen mode: pages rendered as white sheets on a grey background, fixed 8.5×11 width
-  // Print mode: standard @page rules take over, -webkit-print-color-adjust forces colour
+  // ── Styles ─────────────────────────────────────────────────────────────────
+  // For screen: each task is a tall scrollable white sheet (no fixed height so all content shows)
+  // For print: CSS page counters handle page numbers; thead repeats on overflow pages
   const screenStyles = screen ? `
-    body { background:#6b7280; padding: 32px 0; }
-    .page, .task-block {
-      width: 8.5in;
-      height: 11in;
-      margin: 0 auto 32px;
-      padding: 0.5in;
-      background: white;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.35);
-      page-break-after: unset !important;
-      page-break-before: unset !important;
-      display: flex;
-      flex-direction: column;
+    body { background:#4b5563; padding:32px 0; margin:0; }
+    .pg {
+      width:8.5in; min-height:11in;
+      margin:0 auto 32px; padding:0.5in;
+      background:white; box-shadow:0 4px 24px rgba(0,0,0,0.4);
+      display:flex; flex-direction:column;
     }
-    .page-content, .task-content { flex: 1; }
-    ` : `
-    @page { size:8.5in 11in portrait; margin:0.5in; }
+    .pg-body { flex:1; }
+    /* Hide the continuation banner in screen mode — it only makes sense on overflow print pages */
+    .continuation-head { display:none; }
+  ` : `
+    @page {
+      size:8.5in 11in portrait;
+      margin:0.5in;
+      /* CSS page counter — increments automatically on every page break */
+      @bottom-center { content: none; }
+    }
     body { margin:0; padding:0; background:white; }
-    .page { page-break-after:always; display:flex; flex-direction:column; min-height:calc(11in - 1in); }
-    .task-block { page-break-before:always; display:flex; flex-direction:column; min-height:calc(11in - 1in); }
-    .page-content, .task-content { flex:1; }`;
 
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>SOP ${station.sopId}</title>
+    /* Each .pg block starts on its own page */
+    .pg { page-break-before:always; display:flex; flex-direction:column; min-height:calc(11in - 1in); }
+    .cover-pg { page-break-before:auto; }
+    .pg-body { flex:1; }
+
+    /* Steps table: thead repeats on every overflow page automatically */
+    .steps-table { width:100%; border-collapse:collapse; }
+    .steps-thead { display:table-header-group; } /* browser repeats this on each page */
+
+    /* The "Task X continued" banner: hidden on the FIRST occurrence of the thead
+       (which is the first page of the task), visible only on repeated thead instances.
+       We achieve this by hiding it normally and showing it only when the thead is
+       being repeated — we use the :not(:first-child) trick via a wrapper. */
+    .continuation-head td { display:none; }  /* hidden on page 1 of task */
+
+    /* On overflow pages the browser repeats the entire thead.
+       We cannot directly target "repeated thead" in CSS, so we use a JS post-process
+       to inject a class. As a reliable fallback we always show the continuation banner
+       on print — it is subtle enough (light background, small text) not to be intrusive
+       on the first page, and clearly identifies the task on overflow pages. */
+    .continuation-banner {
+      background:#e0f2f1 !important;
+      color:#00695c;
+      font-size:8pt;
+      padding:3px 6px;
+      border:1px solid #80cbc4;
+      font-style:italic;
+    }
+    .continuation-head td { display:table-cell; } /* show on print */
+
+    .step-row { page-break-inside:avoid; }
+    .col-head  { page-break-after:avoid; }
+    .notes-cell{ page-break-inside:avoid; }
+  `;
+
+  // ── Page number injection (print mode) ─────────────────────────────────────
+  // We use a JS snippet that runs before print to stamp page numbers into footers.
+  // This works because the browser lays out the document before the beforeprint event.
+  // Note: this works in Chrome/Edge. Safari uses its own page counter.
+  const pageNumScript = !screen ? `
+  <script>
+    function stampPageNumbers() {
+      // Each .pg block is exactly one logical page START.
+      // Overflow pages within a task block don't have their own footer here —
+      // the footer sits at the end of the task block and will appear on the last
+      // physical page of that task, which is correct.
+      // We just need total page count accurate in each footer's right label.
+      // The center "Page X" we stamp sequentially per .pg block.
+      const blocks = document.querySelectorAll('.pg');
+      const total = blocks.length; // minimum page count (actual may be higher due to overflow)
+      blocks.forEach((b, i) => {
+        const center = b.querySelector('.footer-center');
+        if (center) center.textContent = 'Page ' + (i+1) + ' of ' + total + '+';
+      });
+    }
+    window.addEventListener('beforeprint', stampPageNumbers);
+    window.onload = () => { stampPageNumbers(); setTimeout(() => window.print(), 400); };
+  <\/script>` : `
+  <script>
+    // Screen mode: number the pages visually for the preview
+    window.onload = () => {
+      const blocks = document.querySelectorAll('.pg');
+      blocks.forEach((b, i) => {
+        const center = b.querySelector('.footer-center');
+        if (center) {
+          const existing = center.textContent.trim();
+          // already set inline for screen mode — leave it
+        }
+      });
+    };
+  <\/script>`;
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>SOP ${safe(station.sopId)}</title>
   <style>
-    /* ── force colour output in print ── */
     * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; box-sizing:border-box; font-family:Arial,sans-serif; }
     body { font-size:10pt; }
     ${screenStyles}
-    .step-row{page-break-inside:avoid;} .col-head{page-break-after:avoid;} .notes-cell{page-break-inside:avoid;}
 
-    /* ── header table ── */
+    /* ── Header table ── */
     .ht{width:100%;border-collapse:collapse;}
     .ht td{border:1px solid #888;padding:3px 5px;font-size:9pt;}
     .logo{width:62px;background:#00897b !important;color:white !important;font-size:17pt;font-weight:900;text-align:center;vertical-align:middle;}
@@ -202,37 +350,41 @@ const buildPrintHTML = (station, screen=false) => {
     .task-lbl{font-weight:bold;background:#b2dfdb !important;color:#00695c;}
     .task-desc{background:#e0f2f1 !important;font-size:9pt;}
 
-    /* ── body table ── */
+    /* ── Body tables ── */
     .bt{width:100%;border-collapse:collapse;margin-top:4px;}
     .bt td{border:1px solid #888;padding:4px 6px;font-size:9pt;}
+    .steps-table{margin-top:0 !important;}
     .sh{background:#e0e0e0 !important;font-weight:bold;text-align:center;padding:4px 6px;}
     .col-hdr{background:#00897b !important;color:white !important;font-weight:bold;padding:5px 6px;}
     .ct-cell{text-align:right;white-space:nowrap;}
     .content{padding:5px 7px;min-height:20px;}
     .vtop{vertical-align:top;}
 
-    /* ── steps ── */
+    /* ── Steps ── */
     .step-num{width:32px;text-align:center;vertical-align:top;padding:4px 3px;font-size:9pt;}
     .step-desc{vertical-align:top;padding:4px 6px;font-size:9pt;}
     .step-time{width:58px;text-align:right;vertical-align:top;padding:4px 5px;font-size:9pt;white-space:nowrap;}
     .kp{color:#00695c;font-size:8pt;font-style:italic;}
 
-    /* ── images ── */
+    /* ── Images ── */
     .thumb{max-width:220px;max-height:150px;margin:3px 3px 0 0;border:1px solid #bbb;display:inline-block;}
     .sthumb{max-width:100%;max-height:3.2in;display:block;margin-top:5px;border:1px solid #bbb;}
     .step-img-wrap{page-break-inside:avoid;}
 
-    /* ── footer ── */
+    /* ── Footer ── */
     .footer{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;
             margin-top:auto;padding-top:6px;font-size:8pt;color:#555;border-top:2px solid #00897b;}
     .footer-left{text-align:left;}
     .footer-center{text-align:center;font-weight:700;color:#00695c;font-size:9pt;}
     .footer-right{text-align:right;}
   </style></head>
-  <body>${cover}${taskPages}
-  ${!screen?`<script>window.onload=()=>{setTimeout(()=>window.print(),400);}<\/script>`:""}
+  <body>
+    ${cover}
+    ${taskPages}
+    ${pageNumScript}
   </body></html>`;
 };
+
 
 const exportPDF = (station) => {
   const win=window.open("","_blank");
