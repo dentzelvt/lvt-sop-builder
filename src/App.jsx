@@ -78,9 +78,11 @@ const exportCSV = (stations) => {
 };
 
 // ─── Print HTML ───────────────────────────────────────────────────────────────
-const buildPrintHTML = (station) => {
+// screen=true → colours visible (preview); screen=false → @media print path (PDF popup)
+const buildPrintHTML = (station, screen=false) => {
   const safe=(s)=>String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br/>");
   const today=new Date().toLocaleDateString();
+
   const hdr=(extra="")=>`
     <table class="ht" cellspacing="0">
       <tr><td rowspan="3" class="logo">LVT</td><td colspan="6" class="title">SOP Trailer Assembly</td></tr>
@@ -91,83 +93,176 @@ const buildPrintHTML = (station) => {
           <td class="lbl">Station Desc:</td><td>${safe(station.stationDesc)}</td></tr>
       ${extra}
     </table>`;
-  const ftr=(label)=>`<div class="footer"><span>Live View Technologies &nbsp;|&nbsp; Revised By: ${safe(station.revisedBy)}</span><span>${label} &nbsp;|&nbsp; SOP ID: ${safe(station.sopId)} &nbsp;|&nbsp; Effective Date: ${today}</span></div>`;
+
+  const ftr=(label)=>`<div class="footer">
+    <span>Live View Technologies &nbsp;|&nbsp; Revised By: ${safe(station.revisedBy)}</span>
+    <span>${label} &nbsp;|&nbsp; SOP ID: ${safe(station.sopId)} &nbsp;|&nbsp; Effective Date: ${today}</span>
+  </div>`;
+
   const drawRows=station.drawings.filter(d=>d.drawingNo||d.description)
-    .map(d=>`<tr><td>${safe(d.drawingNo)}</td><td>${safe(d.description)}</td><td></td><td></td></tr>`).join("")||`<tr><td colspan="4">&nbsp;</td></tr>`;
+    .map(d=>`<tr><td>${safe(d.drawingNo)}</td><td>${safe(d.description)}</td><td></td><td></td></tr>`).join("")
+    ||`<tr><td colspan="4">&nbsp;</td></tr>`;
+
   const stImgs=(station.stationImages||[]).map(src=>`<img src="${src}" class="thumb"/>`).join("");
+
   const cover=`<div class="page">${hdr()}
     <table class="bt" cellspacing="0">
-      <tr><td colspan="4" class="sh">Purpose</td></tr><tr><td colspan="4" class="content">${safe(station.purpose)}&nbsp;</td></tr>
-      <tr><td colspan="4" class="sh">Safety Summary</td></tr><tr><td colspan="4" class="content">${safe(station.safety)}&nbsp;</td></tr>
+      <tr><td colspan="4" class="sh">Purpose</td></tr>
+      <tr><td colspan="4" class="content">${safe(station.purpose)}&nbsp;</td></tr>
+      <tr><td colspan="4" class="sh">Safety Summary</td></tr>
+      <tr><td colspan="4" class="content">${safe(station.safety)}&nbsp;</td></tr>
       <tr><td colspan="4" class="sh">Applicable Drawings</td></tr>
-      <tr><td class="lbl" style="width:18%">Drawing #</td><td class="lbl" style="width:32%">Description</td><td class="lbl" style="width:18%">Drawing #</td><td class="lbl" style="width:32%">Description</td></tr>
+      <tr><td class="lbl" style="width:18%">Drawing #</td><td class="lbl" style="width:32%">Description</td>
+          <td class="lbl" style="width:18%">Drawing #</td><td class="lbl" style="width:32%">Description</td></tr>
       ${drawRows}
       <tr><td colspan="2" class="content vtop"><strong>Tool and Equipment List</strong><br/>${safe(station.tools)}&nbsp;</td>
           <td colspan="2" class="content vtop"><strong>Revision Log</strong><br/>${safe(station.revisionLog)}&nbsp;</td></tr>
       <tr><td colspan="4" class="sh">General Notes</td></tr>
       <tr><td colspan="4" class="content">${safe(station.generalNotes)}${stImgs?"<br/>"+stImgs:""}&nbsp;</td></tr>
     </table>${ftr("Page 1")}</div>`;
+
   const taskPages=station.tasks.map((task)=>{
     const tImgs=(task.taskImages||[]).map(src=>`<img src="${src}" class="thumb"/>`).join("");
     const stepRows=task.steps.map((step,si)=>{
       const ico=step.icon!=="none"?(ICONS[step.icon]?.emoji+" "):"";
       const num=step.useStepNumber?`<strong>${step.stepNumber||si+1}</strong>`:"";
       const img=step.image?`<div class="step-img-wrap"><img src="${step.image}" class="sthumb"/></div>`:"";
-      return `<tr class="step-row"><td class="step-num">${num}</td>
-        <td class="step-desc">${ico}<strong>${safe(step.description)}</strong>${step.keyPoints?`<br/><em class="kp">${safe(step.keyPoints)}</em>`:""}${img}</td>
-        <td class="step-time">${step.cycleTime?parseFloat(step.cycleTime).toFixed(2):""}</td></tr>`;
+      // key-point rows get a teal-tinted background
+      const kpHtml=step.keyPoints?`<br/><em class="kp">${safe(step.keyPoints)}</em>`:"";
+      return `<tr class="step-row">
+        <td class="step-num">${num}</td>
+        <td class="step-desc">${ico}<strong>${safe(step.description)}</strong>${kpHtml}${img}</td>
+        <td class="step-time">${step.cycleTime?parseFloat(step.cycleTime).toFixed(2):""}</td>
+      </tr>`;
     }).join("");
     return `<div class="task-block">
-      ${hdr(`<tr><td colspan="2" class="lbl">Task No.&nbsp;${task.taskNo}</td>
-        <td colspan="2" class="lbl" style="font-family:monospace">${safe(task.taskId)}</td>
-        <td colspan="2"><strong>${safe(task.description)}</strong></td></tr>`)}
+      ${hdr(`<tr>
+        <td colspan="2" class="task-lbl">Task No.&nbsp;${task.taskNo}</td>
+        <td colspan="2" class="task-lbl" style="font-family:monospace">${safe(task.taskId)}</td>
+        <td colspan="2" class="task-desc"><strong>${safe(task.description)}</strong></td>
+      </tr>`)}
       <table class="bt" cellspacing="0">
         <tr><td colspan="3" class="sh">General Task Notes (For Reference Only)</td></tr>
         <tr><td colspan="3" class="content notes-cell">${safe(task.generalNotes)}${tImgs?"<br/>"+tImgs:""}&nbsp;</td></tr>
-        <tr><td colspan="2" class="sh">&nbsp;</td><td class="sh" style="text-align:right;white-space:nowrap">Est. Cycle Time:&nbsp;${fmtTime(sumSteps(task.steps))}</td></tr>
-        <tr class="col-head"><td class="step-num lbl">Step</td><td class="lbl">Description</td><td class="step-time lbl">Time</td></tr>
+        <tr>
+          <td colspan="2" class="sh">&nbsp;</td>
+          <td class="sh ct-cell">Est. Cycle Time:&nbsp;${fmtTime(sumSteps(task.steps))}</td>
+        </tr>
+        <tr class="col-head">
+          <td class="step-num col-hdr">Step</td>
+          <td class="col-hdr">Description</td>
+          <td class="step-time col-hdr">Time</td>
+        </tr>
         ${stepRows||`<tr><td colspan="3" class="content">&nbsp;</td></tr>`}
-      </table>${ftr(`Task ${task.taskNo} of ${station.tasks.length}`)}</div>`;
+      </table>
+      ${ftr(`Task ${task.taskNo} of ${station.tasks.length}`)}
+    </div>`;
   }).join("");
+
+  // Screen mode: pages rendered as white sheets on a grey background, fixed 8.5×11 width
+  // Print mode: standard @page rules take over, -webkit-print-color-adjust forces colour
+  const screenStyles = screen ? `
+    body { background:#6b7280; padding: 32px 0; }
+    .page, .task-block {
+      width: 8.5in;
+      min-height: 11in;
+      margin: 0 auto 32px;
+      padding: 0.5in;
+      background: white;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.35);
+      page-break-after: unset !important;
+      page-break-before: unset !important;
+    }` : `
+    @page { size:8.5in 11in portrait; margin:0.5in; }
+    body { margin:0; padding:0; background:white; }
+    .page { page-break-after:always; }
+    .task-block { page-break-before:always; }`;
+
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>SOP ${station.sopId}</title>
   <style>
-    @page{size:8.5in 11in portrait;margin:0.5in;}
-    *{box-sizing:border-box;font-family:Arial,sans-serif;}
-    body{margin:0;padding:0;background:white;font-size:10pt;}
-    .page{page-break-after:always;} .task-block{page-break-before:always;}
+    /* ── force colour output in print ── */
+    * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; box-sizing:border-box; font-family:Arial,sans-serif; }
+    body { font-size:10pt; }
+    ${screenStyles}
     .step-row{page-break-inside:avoid;} .col-head{page-break-after:avoid;} .notes-cell{page-break-inside:avoid;}
-    .ht{width:100%;border-collapse:collapse;margin-bottom:0;} .ht td{border:1px solid #aaa;padding:3px 5px;font-size:9pt;}
-    .logo{width:62px;background:#00897b;color:white;font-size:17pt;font-weight:900;text-align:center;vertical-align:middle;}
-    .title{text-align:center;font-size:15pt;font-weight:bold;background:#00897b;color:white;padding:6px;}
-    .lbl{font-weight:bold;background:#e0e0e0;} .bt{width:100%;border-collapse:collapse;margin-top:4px;} .bt td{border:1px solid #aaa;padding:4px 6px;font-size:9pt;}
-    .sh{background:#e0e0e0;font-weight:bold;text-align:center;padding:4px 6px;} .content{padding:5px 7px;min-height:20px;} .vtop{vertical-align:top;}
+
+    /* ── header table ── */
+    .ht{width:100%;border-collapse:collapse;}
+    .ht td{border:1px solid #888;padding:3px 5px;font-size:9pt;}
+    .logo{width:62px;background:#00897b !important;color:white !important;font-size:17pt;font-weight:900;text-align:center;vertical-align:middle;}
+    .title{text-align:center;font-size:15pt;font-weight:bold;background:#00897b !important;color:white !important;padding:6px;}
+    .lbl{font-weight:bold;background:#e0e0e0 !important;}
+    .task-lbl{font-weight:bold;background:#b2dfdb !important;color:#00695c;}
+    .task-desc{background:#e0f2f1 !important;font-size:9pt;}
+
+    /* ── body table ── */
+    .bt{width:100%;border-collapse:collapse;margin-top:4px;}
+    .bt td{border:1px solid #888;padding:4px 6px;font-size:9pt;}
+    .sh{background:#e0e0e0 !important;font-weight:bold;text-align:center;padding:4px 6px;}
+    .col-hdr{background:#00897b !important;color:white !important;font-weight:bold;padding:5px 6px;}
+    .ct-cell{text-align:right;white-space:nowrap;}
+    .content{padding:5px 7px;min-height:20px;}
+    .vtop{vertical-align:top;}
+
+    /* ── steps ── */
     .step-num{width:32px;text-align:center;vertical-align:top;padding:4px 3px;font-size:9pt;}
-    .step-desc{vertical-align:top;padding:4px 6px;font-size:9pt;} .step-time{width:58px;text-align:right;vertical-align:top;padding:4px 5px;font-size:9pt;white-space:nowrap;}
-    .kp{color:#444;font-size:8pt;} .thumb{max-width:220px;max-height:150px;margin:3px 3px 0 0;border:1px solid #bbb;display:inline-block;}
-    .sthumb{max-width:100%;max-height:3.2in;display:block;margin-top:5px;border:1px solid #bbb;} .step-img-wrap{page-break-inside:avoid;}
-    .footer{display:flex;justify-content:space-between;margin-top:6px;font-size:8pt;color:#555;border-top:1px solid #bbb;padding-top:4px;}
-  </style></head><body>${cover}${taskPages}
-  <script>window.onload=()=>{setTimeout(()=>window.print(),400);}<\/script></body></html>`;
+    .step-desc{vertical-align:top;padding:4px 6px;font-size:9pt;}
+    .step-time{width:58px;text-align:right;vertical-align:top;padding:4px 5px;font-size:9pt;white-space:nowrap;}
+    .kp{color:#00695c;font-size:8pt;font-style:italic;}
+
+    /* ── images ── */
+    .thumb{max-width:220px;max-height:150px;margin:3px 3px 0 0;border:1px solid #bbb;display:inline-block;}
+    .sthumb{max-width:100%;max-height:3.2in;display:block;margin-top:5px;border:1px solid #bbb;}
+    .step-img-wrap{page-break-inside:avoid;}
+
+    /* ── footer ── */
+    .footer{display:flex;justify-content:space-between;margin-top:8px;font-size:8pt;
+            color:#555;border-top:2px solid #00897b;padding-top:4px;}
+  </style></head>
+  <body>${cover}${taskPages}
+  ${!screen?`<script>window.onload=()=>{setTimeout(()=>window.print(),400);}<\/script>`:""}
+  </body></html>`;
 };
 
 const exportPDF = (station) => {
   const win=window.open("","_blank");
   if(!win){ alert("Pop-up blocked — allow pop-ups for this site and try again."); return; }
-  win.document.open(); win.document.write(buildPrintHTML(station)); win.document.close();
+  win.document.open(); win.document.write(buildPrintHTML(station, false)); win.document.close();
 };
 
 // ─── SOP Preview ──────────────────────────────────────────────────────────────
 function SOPPreview({ station, onClose }) {
+  // Build screen-mode HTML (pages as white sheets on grey, no auto-print)
+  const html = buildPrintHTML(station, true);
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,display:"flex",flexDirection:"column"}}>
-      <div style={{background:TEAL_DARK,color:"white",padding:"9px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-        <span style={{fontWeight:700,fontSize:14}}>Preview — {station.sopId||station.stationNo||"Station"}</span>
+    <div style={{position:"fixed",inset:0,background:"#374151",zIndex:1000,display:"flex",flexDirection:"column"}}>
+      {/* toolbar */}
+      <div style={{background:TEAL_DARK,color:"white",padding:"9px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0,boxShadow:"0 2px 8px rgba(0,0,0,0.4)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontWeight:700,fontSize:14}}>Preview — {station.sopId||station.stationNo||"Station"}</span>
+          <span style={{fontSize:11,opacity:0.7,background:"rgba(255,255,255,0.1)",padding:"2px 8px",borderRadius:4}}>
+            8.5 × 11 in · portrait
+          </span>
+        </div>
         <div style={{display:"flex",gap:8}}>
-          <button onClick={()=>exportPDF(station)} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.4)",color:"white",borderRadius:5,padding:"5px 14px",cursor:"pointer",fontSize:12}}>📄 Print / Save PDF</button>
-          <button onClick={onClose} style={{background:"rgba(200,0,0,0.25)",border:"1px solid rgba(255,80,80,0.4)",color:"white",borderRadius:5,padding:"5px 14px",cursor:"pointer",fontSize:12}}>✕ Close</button>
+          <button onClick={()=>exportPDF(station)}
+            style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.4)",color:"white",borderRadius:5,padding:"5px 14px",cursor:"pointer",fontSize:12}}>
+            📄 Print / Save PDF
+          </button>
+          <button onClick={onClose}
+            style={{background:"rgba(200,0,0,0.3)",border:"1px solid rgba(255,80,80,0.5)",color:"white",borderRadius:5,padding:"5px 14px",cursor:"pointer",fontSize:12}}>
+            ✕ Close
+          </button>
         </div>
       </div>
-      <iframe srcDoc={buildPrintHTML(station)} style={{flex:1,border:"none",background:"white"}} title="SOP Preview"/>
+      {/* scrollable page viewer */}
+      <div style={{flex:1,overflow:"auto",background:"#4b5563"}}>
+        <iframe
+          srcDoc={html}
+          style={{width:"100%",height:"100%",border:"none",display:"block"}}
+          title="SOP Preview"
+        />
+      </div>
     </div>
   );
 }
