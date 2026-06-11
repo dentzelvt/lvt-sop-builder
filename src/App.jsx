@@ -94,9 +94,11 @@ const buildPrintHTML = (station, screen=false) => {
       ${extra}
     </table>`;
 
-  const ftr=(label)=>`<div class="footer">
-    <span>Live View Technologies &nbsp;|&nbsp; Revised By: ${safe(station.revisedBy)}</span>
-    <span>${label} &nbsp;|&nbsp; SOP ID: ${safe(station.sopId)} &nbsp;|&nbsp; Effective Date: ${today}</span>
+  const totalPages = 1 + station.tasks.length;
+  const ftr=(pageNum, label)=>`<div class="footer">
+    <span class="footer-left">Live View Technologies &nbsp;|&nbsp; Revised By: ${safe(station.revisedBy)}</span>
+    <span class="footer-center">Page ${pageNum} of ${totalPages}</span>
+    <span class="footer-right">${label} &nbsp;|&nbsp; SOP ID: ${safe(station.sopId)} &nbsp;|&nbsp; Effective Date: ${today}</span>
   </div>`;
 
   const drawRows=station.drawings.filter(d=>d.drawingNo||d.description)
@@ -105,7 +107,7 @@ const buildPrintHTML = (station, screen=false) => {
 
   const stImgs=(station.stationImages||[]).map(src=>`<img src="${src}" class="thumb"/>`).join("");
 
-  const cover=`<div class="page">${hdr()}
+  const cover=`<div class="page">${hdr()}<div class="page-content">
     <table class="bt" cellspacing="0">
       <tr><td colspan="4" class="sh">Purpose</td></tr>
       <tr><td colspan="4" class="content">${safe(station.purpose)}&nbsp;</td></tr>
@@ -119,7 +121,7 @@ const buildPrintHTML = (station, screen=false) => {
           <td colspan="2" class="content vtop"><strong>Revision Log</strong><br/>${safe(station.revisionLog)}&nbsp;</td></tr>
       <tr><td colspan="4" class="sh">General Notes</td></tr>
       <tr><td colspan="4" class="content">${safe(station.generalNotes)}${stImgs?"<br/>"+stImgs:""}&nbsp;</td></tr>
-    </table>${ftr("Page 1")}</div>`;
+    </table></div>${ftr(1, "")}</div>`;
 
   const taskPages=station.tasks.map((task)=>{
     const tImgs=(task.taskImages||[]).map(src=>`<img src="${src}" class="thumb"/>`).join("");
@@ -141,7 +143,7 @@ const buildPrintHTML = (station, screen=false) => {
         <td colspan="2" class="task-lbl" style="font-family:monospace">${safe(task.taskId)}</td>
         <td colspan="2" class="task-desc"><strong>${safe(task.description)}</strong></td>
       </tr>`)}
-      <table class="bt" cellspacing="0">
+      <div class="task-content"><table class="bt" cellspacing="0">
         <tr><td colspan="3" class="sh">General Task Notes (For Reference Only)</td></tr>
         <tr><td colspan="3" class="content notes-cell">${safe(task.generalNotes)}${tImgs?"<br/>"+tImgs:""}&nbsp;</td></tr>
         <tr>
@@ -154,8 +156,8 @@ const buildPrintHTML = (station, screen=false) => {
           <td class="step-time col-hdr">Time</td>
         </tr>
         ${stepRows||`<tr><td colspan="3" class="content">&nbsp;</td></tr>`}
-      </table>
-      ${ftr(`Task ${task.taskNo} of ${station.tasks.length}`)}
+      </table></div>
+      ${ftr(task.taskNo + 1, `Task ${task.taskNo} of ${station.tasks.length}`)}
     </div>`;
   }).join("");
 
@@ -165,18 +167,23 @@ const buildPrintHTML = (station, screen=false) => {
     body { background:#6b7280; padding: 32px 0; }
     .page, .task-block {
       width: 8.5in;
-      min-height: 11in;
+      height: 11in;
       margin: 0 auto 32px;
       padding: 0.5in;
       background: white;
       box-shadow: 0 4px 24px rgba(0,0,0,0.35);
       page-break-after: unset !important;
       page-break-before: unset !important;
-    }` : `
+      display: flex;
+      flex-direction: column;
+    }
+    .page-content, .task-content { flex: 1; }
+    ` : `
     @page { size:8.5in 11in portrait; margin:0.5in; }
     body { margin:0; padding:0; background:white; }
-    .page { page-break-after:always; }
-    .task-block { page-break-before:always; }`;
+    .page { page-break-after:always; display:flex; flex-direction:column; min-height:calc(11in - 1in); }
+    .task-block { page-break-before:always; display:flex; flex-direction:column; min-height:calc(11in - 1in); }
+    .page-content, .task-content { flex:1; }`;
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>SOP ${station.sopId}</title>
   <style>
@@ -216,8 +223,11 @@ const buildPrintHTML = (station, screen=false) => {
     .step-img-wrap{page-break-inside:avoid;}
 
     /* ── footer ── */
-    .footer{display:flex;justify-content:space-between;margin-top:8px;font-size:8pt;
-            color:#555;border-top:2px solid #00897b;padding-top:4px;}
+    .footer{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;
+            margin-top:auto;padding-top:6px;font-size:8pt;color:#555;border-top:2px solid #00897b;}
+    .footer-left{text-align:left;}
+    .footer-center{text-align:center;font-weight:700;color:#00695c;font-size:9pt;}
+    .footer-right{text-align:right;}
   </style></head>
   <body>${cover}${taskPages}
   ${!screen?`<script>window.onload=()=>{setTimeout(()=>window.print(),400);}<\/script>`:""}
@@ -700,6 +710,58 @@ function LineBalance({ stations }) {
   );
 }
 
+// ─── Save Info Modal ──────────────────────────────────────────────────────────
+function SaveInfoModal({ onExport, onClose }) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:"white",borderRadius:12,padding:28,maxWidth:480,width:"90%",boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+          <span style={{fontSize:28}}>💾</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:16,color:TEAL_DARK}}>Your progress has been saved</div>
+            <div style={{fontSize:12,color:"#888",marginTop:2}}>Here's what that means</div>
+          </div>
+        </div>
+        <div style={{background:TEAL_LIGHT,borderRadius:8,padding:14,marginBottom:14,border:"1px solid #80cbc4"}}>
+          <div style={{fontWeight:700,fontSize:13,color:TEAL_DARK,marginBottom:6}}>✅ Auto-saved to this browser</div>
+          <div style={{fontSize:12,color:"#444",lineHeight:1.6}}>
+            Your work is stored in <strong>this browser's local storage</strong> on this computer.
+            It will survive page refreshes and closing the tab.
+            <br/><br/>
+            <strong style={{color:"#c62828"}}>⚠️ It will be lost if you:</strong>
+            <ul style={{margin:"6px 0 0 16px",padding:0,lineHeight:1.8}}>
+              <li>Clear your browser's cache or browsing data</li>
+              <li>Open the app in a different browser (Chrome vs Edge)</li>
+              <li>Open the app on a different computer</li>
+            </ul>
+          </div>
+        </div>
+        <div style={{background:"#fff8e1",borderRadius:8,padding:14,marginBottom:20,border:"1px solid #ffe082"}}>
+          <div style={{fontWeight:700,fontSize:13,color:"#e65100",marginBottom:6}}>📁 For a real portable backup — Export a Save File</div>
+          <div style={{fontSize:12,color:"#444",lineHeight:1.6}}>
+            Use <strong>⬇️ Export Save</strong> to download a <code style={{background:"#f5f5f5",padding:"1px 5px",borderRadius:3}}>.json</code> file to your computer. This file can be:
+            <ul style={{margin:"6px 0 0 16px",padding:0,lineHeight:1.8}}>
+              <li>Stored on your desktop, network drive, or USB</li>
+              <li>Shared with teammates (they use 📂 Load File to open it)</li>
+              <li>Loaded on any computer or browser</li>
+            </ul>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={()=>{onExport();onClose();}}
+            style={{flex:1,background:TEAL,color:"white",border:"none",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:700}}>
+            ⬇️ Export Save File Now
+          </button>
+          <button onClick={onClose}
+            style={{flex:1,background:"#f5f5f5",color:"#555",border:"1px solid #ddd",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13}}>
+            Got it, close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [stations, setStations] = useState(()=>lsLoad()||[]);
@@ -707,6 +769,7 @@ export default function App() {
   const [tab,      setTab]      = useState("stations");
   const [preview,  setPreview]  = useState(null);
   const [saveMsg,  setSaveMsg]  = useState("");
+  const [showSaveInfo, setShowSaveInfo] = useState(false);
   const loadRef = useRef();
 
   useEffect(()=>{ lsSave(stations); },[stations]);
@@ -758,7 +821,7 @@ export default function App() {
         <div style={{flex:1}}/>
         <div style={{display:"flex",alignItems:"center",gap:5,padding:"8px 0"}}>
           {saveMsg&&<span style={{fontSize:11,color:"#a5d6a7",marginRight:4}}>{saveMsg}</span>}
-          <button onClick={()=>{lsSave(stations);flash("✓ Saved");}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>💾 Save</button>
+          <button onClick={()=>{lsSave(stations);setShowSaveInfo(true);}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>💾 Save</button>
           <button onClick={()=>{saveFile(stations);flash("✓ File downloaded");}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>⬇️ Export Save</button>
           <button onClick={()=>loadRef.current.click()} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📂 Load File</button>
           <input ref={loadRef} type="file" accept=".json" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;loadFile(f,loaded=>{setStations(loaded);setActive(null);flash("✓ Loaded");});e.target.value="";}}/>
@@ -801,6 +864,7 @@ export default function App() {
         )}
       </div>
       {preview&&<SOPPreview station={preview} onClose={()=>setPreview(null)}/>}
+      {showSaveInfo&&<SaveInfoModal onExport={()=>saveFile(stations)} onClose={()=>setShowSaveInfo(false)}/>}
     </div>
   );
 }
