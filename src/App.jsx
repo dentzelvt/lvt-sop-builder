@@ -55,7 +55,28 @@ const mkStep = () => ({
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
 const lsSave = (s) => { try { localStorage.setItem(SAVE_KEY, JSON.stringify({version:1,savedAt:new Date().toISOString(),stations:s})); } catch{} };
-const lsLoad = ()  => { try { const r=localStorage.getItem(SAVE_KEY); return r?JSON.parse(r).stations:null; } catch{ return null; } };
+const migrateStation = (s) => {
+  // Seed revisionEntries if missing (stations saved before this feature)
+  if (!s.revisionEntries || s.revisionEntries.length === 0) {
+    const rev = s.sopRev || "A";
+    const rawLog = s.revisionLog || "";
+    const lines = rawLog.split("\n").map(l => l.trim()).filter(Boolean);
+    if (lines.length > 0) {
+      s = { ...s, revisionEntries: lines.map(line => {
+        const match = line.match(/^([A-Z]+)\s*[-–]\s*(.+)/);
+        return match
+          ? { rev: match[1], date: "", description: match[2].trim(), by: "" }
+          : { rev, date: "", description: line, by: "" };
+      })};
+    } else {
+      s = { ...s, revisionEntries: [{ rev, date: new Date().toLocaleDateString(), description: rev === "A" ? "Initial Release" : "See revision history", by: "" }] };
+    }
+  }
+  // Seed toolList if missing
+  if (!s.toolList) s = { ...s, toolList: [] };
+  return s;
+};
+const lsLoad = () => { try { const r=localStorage.getItem(SAVE_KEY); return r?JSON.parse(r).stations.map(migrateStation):null; } catch{ return null; } };
 const saveFile = (stations, station=null) => {
   // If a single station is passed name the file after it, otherwise use a date stamp
   const name = station
@@ -67,7 +88,7 @@ const saveFile = (stations, station=null) => {
 };
 const loadFile = (file,cb) => {
   const r=new FileReader();
-  r.onload=e=>{ try{ const d=JSON.parse(e.target.result); if(d.stations) cb(d.stations); else alert("Invalid save file."); }catch{ alert("Could not read file."); } };
+  r.onload=e=>{ try{ const d=JSON.parse(e.target.result); if(d.stations) cb(d.stations.map(migrateStation)); else alert("Invalid save file."); }catch{ alert("Could not read file."); } };
   r.readAsText(file);
 };
 
@@ -364,23 +385,73 @@ function useDragList(items, onReorder) {
 }
 
 // ─── Tool List Editor ─────────────────────────────────────────────────────────
-// Manages the station-level tool inventory — name + optional part number
 function ToolListEditor({ toolList, onChange }) {
-  const addTool = () => onChange([...toolList, {id:Date.now()+Math.random(), name:"", partNo:""}]);
-  const updTool = (i, f, v) => { const a=[...toolList]; a[i]={...a[i],[f]:v}; onChange(a); };
+  const [bulkText, setBulkText] = useState("");
+  const [showBulk, setShowBulk] = useState(false);
+
+  const addOne  = () => onChange([...toolList, {id:Date.now()+Math.random(), name:"", partNo:""}]);
+  const updTool = (i,f,v) => { const a=[...toolList]; a[i]={...a[i],[f]:v}; onChange(a); };
   const delTool = (i) => onChange(toolList.filter((_,j)=>j!==i));
+
+  // Bulk add: each line becomes one tool entry.
+  // Supports "Tool Name" or "Tool Name | Part#" per line.
+  const commitBulk = () => {
+    const lines = bulkText.split("\n").map(l=>l.trim()).filter(Boolean);
+    const newTools = lines.map(line=>{
+      const parts = line.split("|").map(s=>s.trim());
+      return {id:Date.now()+Math.random(), name:parts[0]||"", partNo:parts[1]||""};
+    });
+    onChange([...toolList, ...newTools]);
+    setBulkText("");
+    setShowBulk(false);
+  };
+
   return (
     <div style={{marginBottom:8}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
         <label style={{fontSize:11,color:"#555",fontWeight:600}}>🔧 Tools & Equipment</label>
-        <button onClick={addTool}
-          style={{fontSize:11,padding:"2px 8px",background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:4,cursor:"pointer"}}>
-          + Add Tool
-        </button>
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={addOne}
+            style={{fontSize:11,padding:"2px 8px",background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:4,cursor:"pointer"}}>
+            + Add Tool
+          </button>
+          <button onClick={()=>setShowBulk(s=>!s)}
+            style={{fontSize:11,padding:"2px 8px",background:"#e3f2fd",border:"1px solid #90caf9",borderRadius:4,cursor:"pointer",color:"#1565c0"}}>
+            + Add Multiple
+          </button>
+        </div>
       </div>
-      {toolList.length===0 && (
-        <div style={{fontSize:11,color:"#aaa",fontStyle:"italic",padding:"6px 0"}}>
-          No tools added yet — click + Add Tool to build the list.
+
+      {/* Bulk add panel */}
+      {showBulk && (
+        <div style={{background:"#f0f8ff",border:"1px solid #90caf9",borderRadius:6,padding:10,marginBottom:8}}>
+          <div style={{fontSize:11,color:"#1565c0",marginBottom:4,fontWeight:600}}>
+            Bulk add — one tool per line. Optionally add a part/model number after a pipe: <code>Tool Name | Part#</code>
+          </div>
+          <textarea
+            value={bulkText}
+            onChange={e=>setBulkText(e.target.value)}
+            autoFocus
+            rows={5}
+            placeholder={"Engine Crane\nHoist\nBattery Tester | BT-2000\nGeneral Hand Tools"}
+            style={{width:"100%",padding:"6px 8px",border:"1px solid #90caf9",borderRadius:4,fontSize:12,resize:"vertical",fontFamily:"monospace"}}
+          />
+          <div style={{display:"flex",gap:8,marginTop:6}}>
+            <button onClick={commitBulk}
+              style={{background:TEAL,color:"white",border:"none",borderRadius:5,padding:"5px 14px",cursor:"pointer",fontSize:12,fontWeight:700}}>
+              ✓ Add {bulkText.split("\n").filter(l=>l.trim()).length} Tool(s)
+            </button>
+            <button onClick={()=>{setShowBulk(false);setBulkText("");}}
+              style={{background:"#f5f5f5",border:"1px solid #ddd",borderRadius:5,padding:"5px 14px",cursor:"pointer",fontSize:12}}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {toolList.length===0 && !showBulk && (
+        <div style={{fontSize:11,color:"#aaa",fontStyle:"italic",padding:"4px 0"}}>
+          No tools added yet.
         </div>
       )}
       {toolList.map((t,i)=>(
@@ -838,11 +909,38 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
   const [showEditModal, setShowEditModal] = useState(false);
   const [pendingRev, setPendingRev]       = useState("");
   const [revDesc, setRevDesc]             = useState("");
+  const [revDate, setRevDate]             = useState("");
+  const [revBy,   setRevBy]               = useState("");
   const [editIdx, setEditIdx]             = useState(null);
   const [editDesc, setEditDesc]           = useState("");
+  const [editBy,   setEditBy]             = useState("");
   const [editConfirmed, setEditConfirmed] = useState(false);
 
-  const entries = station.revisionEntries || [];
+  // Today as YYYY-MM-DD for the date input default
+  const todayISO = () => new Date().toISOString().slice(0,10);
+  const isoToLocale = (iso) => iso ? new Date(iso+"T00:00:00").toLocaleDateString() : new Date().toLocaleDateString();
+
+  // Migrate: if revisionEntries missing, seed from sopRev + revisionLog text
+  const entries = (() => {
+    if (station.revisionEntries && station.revisionEntries.length > 0) {
+      return station.revisionEntries;
+    }
+    // Build a fallback entry from whatever is stored in the old free-text revisionLog
+    const rev = station.sopRev || "A";
+    const rawLog = station.revisionLog || "";
+    // Try to parse lines like "A - Initial Release" from the old text field
+    const lines = rawLog.split("\n").map(l => l.trim()).filter(Boolean);
+    if (lines.length > 0) {
+      return lines.map(line => {
+        const match = line.match(/^([A-Z]+)\s*[-–]\s*(.+)/);
+        return match
+          ? { rev: match[1], date: "", description: match[2].trim(), by: "" }
+          : { rev, date: "", description: line, by: "" };
+      });
+    }
+    // Last resort: just show the current rev as Initial Release
+    return [{ rev, date: new Date().toLocaleDateString(), description: rev === "A" ? "Initial Release" : "See revision history", by: "" }];
+  })();
 
   // Next letter helper  A→B, B→C … Z→AA etc.
   const nextRev = (current) => {
@@ -868,16 +966,17 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
   const startRevChange = () => {
     setPendingRev(proposed);
     setRevDesc("");
+    setRevDate(todayISO());
+    setRevBy(station.revisedBy||"");
     setShowRevModal(true);
   };
   const confirmRev = () => {
     const rev = (pendingRev||proposed).toUpperCase().trim();
     if(!rev){ alert("Please enter a revision letter."); return; }
     if(!revDesc.trim()){ alert("Please enter a description for this revision."); return; }
-    // Warn if the rev letter already exists
     const exists = entries.some(e=>e.rev.toUpperCase()===rev);
     if(exists && !window.confirm(`Revision ${rev} already exists in the log. Add another entry for it anyway?`)) return;
-    onRevChange(rev, revDesc.trim());
+    onRevChange(rev, revDesc.trim(), isoToLocale(revDate), revBy.trim());
     setShowRevModal(false);
   };
 
@@ -885,12 +984,13 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
   const startEdit = (i) => {
     setEditIdx(i);
     setEditDesc(entries[i].description);
+    setEditBy(entries[i].by||"");
     setEditConfirmed(false);
     setShowEditModal(true);
   };
   const confirmEdit = () => {
     if(!editDesc.trim()){ alert("Description cannot be empty."); return; }
-    onEntryEdit(editIdx, editDesc.trim());
+    onEntryEdit(editIdx, editDesc.trim(), editBy.trim());
     setShowEditModal(false);
   };
 
@@ -948,7 +1048,7 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
               The SOP ID and revision log will update automatically.
             </div>
 
-            {/* Revision letter — editable, defaults to next letter */}
+            {/* Revision letter */}
             <div style={{marginBottom:14}}>
               <label style={{fontSize:12,fontWeight:600,color:"#333",display:"block",marginBottom:4}}>
                 New Revision Letter *
@@ -956,14 +1056,36 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <span style={{fontSize:13,color:"#888"}}>Current: <strong style={{color:TEAL_DARK}}>{station.sopRev}</strong></span>
                 <span style={{color:"#bbb"}}>→</span>
-                <input
-                  value={pendingRev}
-                  onChange={e=>setPendingRev(e.target.value.toUpperCase().trim())}
-                  placeholder={proposed}
-                  maxLength={4}
-                  style={{width:72,padding:"6px 9px",border:`2px solid ${TEAL}`,borderRadius:5,fontSize:15,fontWeight:700,textAlign:"center",color:TEAL_DARK}}
-                />
+                <input value={pendingRev} onChange={e=>setPendingRev(e.target.value.toUpperCase().trim())}
+                  placeholder={proposed} maxLength={4}
+                  style={{width:72,padding:"6px 9px",border:`2px solid ${TEAL}`,borderRadius:5,fontSize:15,fontWeight:700,textAlign:"center",color:TEAL_DARK}}/>
                 <span style={{fontSize:11,color:"#aaa"}}>(default: {proposed})</span>
+              </div>
+            </div>
+
+            {/* Date + Revised By row */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+              <div>
+                <label style={{fontSize:12,fontWeight:600,color:"#333",display:"block",marginBottom:4}}>
+                  Revision Date *
+                </label>
+                <input type="date" value={revDate} onChange={e=>setRevDate(e.target.value)}
+                  style={{width:"100%",padding:"7px 9px",border:"1px solid #ccc",borderRadius:5,fontSize:13}}/>
+              </div>
+              <div>
+                <label style={{fontSize:12,fontWeight:600,color:"#333",display:"block",marginBottom:4}}>
+                  Revised By
+                </label>
+                <input value={revBy} onChange={e=>setRevBy(e.target.value)}
+                  placeholder="Name"
+                  style={{width:"100%",padding:"7px 9px",border:"1px solid #ccc",borderRadius:5,fontSize:13,
+                          background:revBy===station.revisedBy&&station.revisedBy?"#f0fdf4":"white"}}/>
+                {station.revisedBy && revBy !== station.revisedBy && (
+                  <button onClick={()=>setRevBy(station.revisedBy)}
+                    style={{fontSize:10,color:TEAL,background:"none",border:"none",cursor:"pointer",padding:"2px 0",marginTop:2}}>
+                    ↩ Use "{station.revisedBy}"
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1007,10 +1129,23 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
             <div style={{fontSize:12,color:"#666",marginBottom:12,lineHeight:1.6}}>
               You are editing the description for an existing revision entry.
             </div>
-            <div style={{marginBottom:12}}>
-              <label style={{fontSize:12,fontWeight:600,color:"#333",display:"block",marginBottom:4}}>Description</label>
-              <input value={editDesc} onChange={e=>setEditDesc(e.target.value)} autoFocus
-                style={{width:"100%",padding:"7px 9px",border:"1px solid #ccc",borderRadius:5,fontSize:13}}/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+              <div>
+                <label style={{fontSize:12,fontWeight:600,color:"#333",display:"block",marginBottom:4}}>Description</label>
+                <input value={editDesc} onChange={e=>setEditDesc(e.target.value)} autoFocus
+                  style={{width:"100%",padding:"7px 9px",border:"1px solid #ccc",borderRadius:5,fontSize:13}}/>
+              </div>
+              <div>
+                <label style={{fontSize:12,fontWeight:600,color:"#333",display:"block",marginBottom:4}}>Revised By</label>
+                <input value={editBy} onChange={e=>setEditBy(e.target.value)} placeholder="Name"
+                  style={{width:"100%",padding:"7px 9px",border:"1px solid #ccc",borderRadius:5,fontSize:13}}/>
+                {station.revisedBy && editBy !== station.revisedBy && (
+                  <button onClick={()=>setEditBy(station.revisedBy)}
+                    style={{fontSize:10,color:TEAL,background:"none",border:"none",cursor:"pointer",padding:"2px 0",marginTop:2}}>
+                    ↩ Use "{station.revisedBy}"
+                  </button>
+                )}
+              </div>
             </div>
             {/* Windchill reminder checkbox */}
             <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:6,padding:10,marginBottom:16}}>
@@ -1133,17 +1268,16 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
           <ToolListEditor
             toolList={station.toolList||[]}
             onChange={list=>{
-              const toolStr=list.map(t=>t.partNo?`${t.name} (${t.partNo})`:t.name).join(", ");
-              u("toolList",list);
-              u("tools",toolStr);
+              const toolStr=list.filter(t=>t.name).map(t=>t.partNo?`${t.name} (${t.partNo})`:t.name).join(", ");
+              onUpdate({...station, toolList:list, tools:toolStr});
             }}
           />
           {/* Revision Log */}
           <RevisionLogPanel
             station={station}
             onUpdate={onUpdate}
-            onRevChange={(newRev, desc)=>{
-              const entry={rev:newRev, date:new Date().toLocaleDateString(), description:desc, by:station.revisedBy||""};
+            onRevChange={(newRev, desc, date, by)=>{
+              const entry={rev:newRev, date:date||new Date().toLocaleDateString(), description:desc, by:by||station.revisedBy||""};
               const entries=[...(station.revisionEntries||[]), entry];
               const logText=entries.map(e=>`${e.rev} - ${e.description} (${e.date}${e.by?" | "+e.by:""})`).join("\n");
               const upd={...station, sopRev:newRev, revisionEntries:entries, revisionLog:logText};
@@ -1151,9 +1285,9 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
               upd.tasks=upd.tasks.map(t=>({...t,taskId:genTaskId(upd.sopId,t.taskNo)}));
               onUpdate(upd);
             }}
-            onEntryEdit={(idx, desc)=>{
+            onEntryEdit={(idx, desc, by)=>{
               const entries=[...(station.revisionEntries||[])];
-              entries[idx]={...entries[idx], description:desc};
+              entries[idx]={...entries[idx], description:desc, by:by!==undefined?by:entries[idx].by};
               const logText=entries.map(e=>`${e.rev} - ${e.description} (${e.date}${e.by?" | "+e.by:""})`).join("\n");
               onUpdate({...station, revisionEntries:entries, revisionLog:logText});
             }}
