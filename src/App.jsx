@@ -359,6 +359,100 @@ function useDragList(items, onReorder) {
   return makeDragProps;
 }
 
+// ─── Icon Picker ──────────────────────────────────────────────────────────────
+function IconPicker({ selected, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+
+  // Close when clicking outside
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const toggle = (key) => {
+    const next = selected.includes(key)
+      ? selected.filter(k => k !== key)
+      : [...selected, key];
+    onChange(next);
+  };
+
+  const label = selected.length === 0
+    ? "Select icons…"
+    : selected.map(k => ICONS[k]?.emoji).join("  ");
+
+  return (
+    <div ref={ref} style={{position:"relative",display:"inline-block"}}>
+      {/* Trigger button — looks like a native select */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display:"flex", alignItems:"center", gap:6,
+          padding:"3px 8px 3px 6px", minWidth:160, height:28,
+          border:"1px solid #ccc", borderRadius:4, background:"white",
+          cursor:"pointer", fontSize:13, textAlign:"left",
+          justifyContent:"space-between"
+        }}
+      >
+        <span style={{flex:1, overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis"}}>
+          {label}
+        </span>
+        <span style={{fontSize:10, color:"#888", flexShrink:0}}>▼</span>
+      </button>
+
+      {/* Dropdown panel */}
+      {open && (
+        <div style={{
+          position:"absolute", top:"100%", left:0, zIndex:200,
+          background:"white", border:"1px solid #ccc", borderRadius:6,
+          boxShadow:"0 4px 16px rgba(0,0,0,0.15)", minWidth:190,
+          marginTop:2, overflow:"hidden"
+        }}>
+          {/* Clear option */}
+          {selected.length > 0 && (
+            <div
+              onClick={() => { onChange([]); setOpen(false); }}
+              style={{
+                padding:"7px 12px", fontSize:12, cursor:"pointer",
+                color:"#c62828", borderBottom:"1px solid #eee",
+                display:"flex", alignItems:"center", gap:8
+              }}
+              onMouseEnter={e=>e.currentTarget.style.background="#ffebee"}
+              onMouseLeave={e=>e.currentTarget.style.background="white"}
+            >
+              ✕ &nbsp;Clear all
+            </div>
+          )}
+          {/* Icon options */}
+          {Object.entries(ICONS).filter(([k]) => k !== "none").map(([k, v]) => {
+            const active = selected.includes(k);
+            return (
+              <div
+                key={k}
+                onClick={() => toggle(k)}
+                style={{
+                  padding:"7px 12px", fontSize:12, cursor:"pointer",
+                  display:"flex", alignItems:"center", gap:10,
+                  background: active ? "#e0f2f1" : "white",
+                  fontWeight: active ? 700 : 400,
+                  borderBottom:"1px solid #f5f5f5"
+                }}
+                onMouseEnter={e=>e.currentTarget.style.background=active?"#b2dfdb":"#f5f5f5"}
+                onMouseLeave={e=>e.currentTarget.style.background=active?"#e0f2f1":"white"}
+              >
+                <span style={{fontSize:16, width:22, textAlign:"center"}}>{v.emoji}</span>
+                <span>{v.label.replace(/^\S+\s/, "")}</span>
+                {active && <span style={{marginLeft:"auto", color:TEAL, fontSize:14}}>✓</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Step Editor ──────────────────────────────────────────────────────────────
 function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allStations, thisStationId, thisTaskId, onMoveStep }) {
   const u=(f,v)=>onChange({...step,[f]:v});
@@ -381,38 +475,11 @@ function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allSta
           <input value={step.stepNumber} onChange={e=>u("stepNumber",e.target.value)} placeholder={String(idx+1)}
             style={{width:44,padding:"3px 5px",border:"1px solid #ccc",borderRadius:4,fontSize:12,textAlign:"center"}}/>
         )}
-        {/* Multi-icon dropdown */}
-        <div style={{display:"flex",alignItems:"center",gap:4}}>
-          <select
-            multiple
-            value={step.icons||[]}
-            onChange={e=>{
-              const sel=Array.from(e.target.selectedOptions).map(o=>o.value);
-              u("icons",sel);
-            }}
-            style={{padding:"2px 4px",border:"1px solid #ccc",borderRadius:4,fontSize:12,
-                    height:28,minWidth:175,cursor:"pointer"}}
-            title="Hold Ctrl / Cmd to select multiple icons"
-          >
-            {Object.entries(ICONS).filter(([k])=>k!=="none").map(([k,v])=>(
-              <option key={k} value={k}
-                style={{background:(step.icons||[]).includes(k)?"#e0f2f1":"white",
-                        fontWeight:(step.icons||[]).includes(k)?"700":"400"}}>
-                {v.emoji} {v.label.replace(/^\S+\s/,"")}
-              </option>
-            ))}
-          </select>
-          {(step.icons||[]).length>0 && (
-            <span style={{fontSize:14,letterSpacing:2}} title="Selected icons">
-              {(step.icons||[]).map(k=>ICONS[k]?.emoji||"").join(" ")}
-            </span>
-          )}
-          {(step.icons||[]).length>0 && (
-            <button onClick={()=>u("icons",[])} title="Clear all icons"
-              style={{padding:"1px 5px",fontSize:10,borderRadius:4,cursor:"pointer",
-                      border:"1px solid #ef9a9a",background:"#ffebee",color:"#c62828"}}>✕</button>
-          )}
-        </div>
+        {/* Multi-icon dropdown — custom */}
+        <IconPicker
+          selected={step.icons||[]}
+          onChange={icons=>u("icons",icons)}
+        />
         <input value={step.cycleTime} onChange={e=>u("cycleTime",e.target.value)} placeholder="Time (min)" type="number" min="0" step="0.01"
           style={{width:90,padding:"3px 5px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}/>
         <div style={{display:"flex",gap:3,marginLeft:"auto"}}>
