@@ -37,18 +37,20 @@ const mkStation = () => ({
   safety:"• Always wear appropriate Personal Protective Equipment (PPE), including safety glasses and gloves as required.\n• Observe all warnings, cautions, and notes throughout this document.",
   drawings:[{drawingNo:"",description:""}],
   tools:"",
+  toolList:[],
   revisionLog:"A - Initial Release",
   revisionEntries:[{rev:"A", date:new Date().toLocaleDateString(), description:"Initial Release", by:""}],
+  // Rev A is always pre-seeded so it appears in the log from day one
   generalNotes:"Tasks may be completed in any order, if steps are numbered they must be followed in order as specified.",
   stationImages:[], tasks:[],
 });
 const mkTask = (sopId, taskNo) => ({
   id:Date.now()+Math.random(), taskNo, taskId:genTaskId(sopId,taskNo),
-  description:"", generalNotes:"", taskImages:[], steps:[],
+  description:"", generalNotes:"", taskImages:[], steps:[], selectedTools:[], selectedDrawings:[],
 });
 const mkStep = () => ({
   id:Date.now()+Math.random(), useStepNumber:true, stepNumber:"",
-  description:"", keyPoints:"", icons:[], cycleTime:"", image:null,
+  description:"", keyPoints:"", icons:[], cycleTime:"", image:null, selectedTools:[], selectedDrawings:[],
 });
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
@@ -361,6 +363,129 @@ function useDragList(items, onReorder) {
   return makeDragProps;
 }
 
+// ─── Tool List Editor ─────────────────────────────────────────────────────────
+// Manages the station-level tool inventory — name + optional part number
+function ToolListEditor({ toolList, onChange }) {
+  const addTool = () => onChange([...toolList, {id:Date.now()+Math.random(), name:"", partNo:""}]);
+  const updTool = (i, f, v) => { const a=[...toolList]; a[i]={...a[i],[f]:v}; onChange(a); };
+  const delTool = (i) => onChange(toolList.filter((_,j)=>j!==i));
+  return (
+    <div style={{marginBottom:8}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+        <label style={{fontSize:11,color:"#555",fontWeight:600}}>🔧 Tools & Equipment</label>
+        <button onClick={addTool}
+          style={{fontSize:11,padding:"2px 8px",background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:4,cursor:"pointer"}}>
+          + Add Tool
+        </button>
+      </div>
+      {toolList.length===0 && (
+        <div style={{fontSize:11,color:"#aaa",fontStyle:"italic",padding:"6px 0"}}>
+          No tools added yet — click + Add Tool to build the list.
+        </div>
+      )}
+      {toolList.map((t,i)=>(
+        <div key={t.id||i} style={{display:"flex",gap:6,marginBottom:4,alignItems:"center"}}>
+          <input value={t.name} onChange={e=>updTool(i,"name",e.target.value)}
+            placeholder="Tool name *"
+            style={{flex:2,padding:"4px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}/>
+          <input value={t.partNo||""} onChange={e=>updTool(i,"partNo",e.target.value)}
+            placeholder="Part / Model # (optional)"
+            style={{flex:2,padding:"4px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}/>
+          <button onClick={()=>delTool(i)}
+            style={{padding:"2px 7px",background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:4,cursor:"pointer",fontSize:11,color:"#c62828",flexShrink:0}}>
+            ✕
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Ref Dropdown ──────────────────────────────────────────────────────────────
+// Generic multi-select dropdown for tools and drawings at task/step level
+function RefDropdown({ label, options, selected, onChange, compact=false }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+
+  useEffect(()=>{
+    const h=(e)=>{ if(ref.current&&!ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown",h);
+    return ()=>document.removeEventListener("mousedown",h);
+  },[]);
+
+  if(!options||options.length===0) return null;
+
+  const toggle = (val) => {
+    const next = selected.includes(val) ? selected.filter(v=>v!==val) : [...selected,val];
+    onChange(next);
+  };
+
+  const displayLabel = selected.length===0
+    ? label
+    : selected.length===1
+      ? (options.find(o=>o.value===selected[0])?.label||selected[0])
+      : `${selected.length} selected`;
+
+  const fs = compact ? 11 : 12;
+
+  return (
+    <div ref={ref} style={{position:"relative"}}>
+      <button onClick={()=>setOpen(o=>!o)}
+        style={{
+          width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
+          gap:6,padding:`${compact?"2px 6px":"4px 8px"}`,
+          border:`1px solid ${selected.length>0?TEAL:"#ccc"}`,
+          borderRadius:4,background:selected.length>0?TEAL_LIGHT:"white",
+          cursor:"pointer",fontSize:fs,textAlign:"left",
+          color:selected.length>0?TEAL_DARK:"#555"
+        }}>
+        <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+          {displayLabel}
+        </span>
+        <span style={{fontSize:9,flexShrink:0}}>▼</span>
+      </button>
+      {open && (
+        <div style={{
+          position:"absolute",top:"100%",left:0,zIndex:300,
+          background:"white",border:"1px solid #ccc",borderRadius:6,
+          boxShadow:"0 4px 16px rgba(0,0,0,0.15)",minWidth:"100%",maxWidth:340,
+          marginTop:2,maxHeight:220,overflowY:"auto"
+        }}>
+          <div style={{padding:"5px 10px",fontSize:10,color:"#888",borderBottom:"1px solid #eee",background:"#fafafa"}}>
+            Click to select/deselect
+          </div>
+          {selected.length>0 && (
+            <div onClick={()=>{onChange([]);setOpen(false);}}
+              style={{padding:"6px 12px",fontSize:fs,cursor:"pointer",color:"#c62828",borderBottom:"1px solid #eee",display:"flex",alignItems:"center",gap:6}}
+              onMouseEnter={e=>e.currentTarget.style.background="#ffebee"}
+              onMouseLeave={e=>e.currentTarget.style.background="white"}>
+              ✕ &nbsp;Clear all
+            </div>
+          )}
+          {options.map(opt=>{
+            const active=selected.includes(opt.value);
+            return (
+              <div key={opt.value} onClick={()=>toggle(opt.value)}
+                style={{
+                  padding:"7px 12px",fontSize:fs,cursor:"pointer",
+                  display:"flex",alignItems:"center",gap:8,
+                  background:active?TEAL_LIGHT:"white",
+                  fontWeight:active?700:400,
+                  borderBottom:"1px solid #f5f5f5"
+                }}
+                onMouseEnter={e=>e.currentTarget.style.background=active?"#b2dfdb":"#f5f5f5"}
+                onMouseLeave={e=>e.currentTarget.style.background=active?TEAL_LIGHT:"white"}>
+                <span style={{flex:1}}>{opt.label}</span>
+                {active&&<span style={{color:TEAL,fontSize:13,flexShrink:0}}>✓</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Icon Picker ──────────────────────────────────────────────────────────────
 function IconPicker({ selected, onChange }) {
   const [open, setOpen] = useState(false);
@@ -456,7 +581,7 @@ function IconPicker({ selected, onChange }) {
 }
 
 // ─── Step Editor ──────────────────────────────────────────────────────────────
-function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allStations, thisStationId, thisTaskId, onMoveStep }) {
+function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allStations, thisStationId, thisTaskId, onMoveStep, stationToolList, stationDrawings }) {
   const u=(f,v)=>onChange({...step,[f]:v});
   const [showMove,setShowMove]=useState(false);
 
@@ -513,6 +638,29 @@ function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allSta
         style={{width:"100%",padding:"5px 7px",border:"1px solid #ccc",borderRadius:4,fontSize:12,resize:"vertical",cursor:"text"}}/>
       <textarea value={step.keyPoints} onChange={e=>u("keyPoints",e.target.value)} placeholder="NOTE / Key point (optional)" rows={1}
         style={{width:"100%",padding:"5px 7px",border:"1px solid #ddd",borderRadius:4,fontSize:11,resize:"vertical",marginTop:3,background:"#fffde7",cursor:"text"}}/>
+      {/* Step-level tool & drawing selectors */}
+      {(stationToolList&&stationToolList.length>0||stationDrawings&&stationDrawings.filter(d=>d.drawingNo||d.description).length>0) && (
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:6}}>
+          {stationToolList&&stationToolList.length>0 && (
+            <RefDropdown
+              label="🔧 Tools (this step)"
+              options={stationToolList.map(t=>({value:t.name,label:t.partNo?`${t.name} — ${t.partNo}`:t.name}))}
+              selected={step.selectedTools||[]}
+              onChange={v=>u("selectedTools",v)}
+              compact
+            />
+          )}
+          {stationDrawings&&stationDrawings.filter(d=>d.drawingNo||d.description).length>0 && (
+            <RefDropdown
+              label="📐 Drawings (this step)"
+              options={stationDrawings.filter(d=>d.drawingNo||d.description).map(d=>({value:d.drawingNo,label:d.drawingNo&&d.description?`${d.drawingNo} — ${d.description}`:d.drawingNo||d.description}))}
+              selected={step.selectedDrawings||[]}
+              onChange={v=>u("selectedDrawings",v)}
+              compact
+            />
+          )}
+        </div>
+      )}
       <div style={{marginTop:5,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <ImgUpload label="📎 Step Image" onImage={src=>u("image",src)}/>
         {step.image && (
@@ -541,7 +689,7 @@ function InsertStepBtn({ onInsert }) {
 }
 
 // ─── Task Editor ──────────────────────────────────────────────────────────────
-function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStationId, onMoveTask }) {
+function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStationId, onMoveTask, stationToolList, stationDrawings }) {
   const [showNums, setShowNums] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
   const [showMoveTask, setShowMoveTask] = useState(false);
@@ -625,6 +773,22 @@ function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStat
             <ImgList images={task.taskImages} onRemove={i=>u("taskImages",task.taskImages.filter((_,j)=>j!==i))}/>
           </div>
 
+          {/* Task-level tool & drawing selectors */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+            <RefDropdown
+              label="🔧 Tools Used (this task)"
+              options={(stationToolList||[]).map(t=>({value:t.name,label:t.partNo?`${t.name} — ${t.partNo}`:t.name}))}
+              selected={task.selectedTools||[]}
+              onChange={v=>u("selectedTools",v)}
+            />
+            <RefDropdown
+              label="📐 Applicable Drawings (this task)"
+              options={(stationDrawings||[]).filter(d=>d.drawingNo||d.description).map(d=>({value:d.drawingNo,label:d.drawingNo&&d.description?`${d.drawingNo} — ${d.description}`:d.drawingNo||d.description}))}
+              selected={task.selectedDrawings||[]}
+              onChange={v=>u("selectedDrawings",v)}
+            />
+          </div>
+
           {/* Steps */}
           <div style={{borderTop:"1px solid #e0e0e0",paddingTop:8}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
@@ -648,6 +812,8 @@ function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStat
                   thisStationId={thisStationId}
                   thisTaskId={task.id}
                   onMoveStep={(targetStationId,targetTaskId)=>handleMoveStep(i,targetStationId,targetTaskId)}
+                  stationToolList={stationToolList||[]}
+                  stationDrawings={stationDrawings||[]}
                 />
                 <InsertStepBtn onInsert={()=>insertStep(i)}/>
               </div>
@@ -705,8 +871,13 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
     setShowRevModal(true);
   };
   const confirmRev = () => {
+    const rev = (pendingRev||proposed).toUpperCase().trim();
+    if(!rev){ alert("Please enter a revision letter."); return; }
     if(!revDesc.trim()){ alert("Please enter a description for this revision."); return; }
-    onRevChange(pendingRev, revDesc.trim());
+    // Warn if the rev letter already exists
+    const exists = entries.some(e=>e.rev.toUpperCase()===rev);
+    if(exists && !window.confirm(`Revision ${rev} already exists in the log. Add another entry for it anyway?`)) return;
+    onRevChange(rev, revDesc.trim());
     setShowRevModal(false);
   };
 
@@ -770,30 +941,52 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
       {showRevModal && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{background:"white",borderRadius:12,padding:28,maxWidth:460,width:"90%",boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}}>
-            <div style={{fontWeight:700,fontSize:16,color:TEAL_DARK,marginBottom:6}}>
-              Create New Revision: {station.sopRev} → {pendingRev}
+            <div style={{fontWeight:700,fontSize:16,color:TEAL_DARK,marginBottom:4}}>
+              Create New Revision
             </div>
             <div style={{fontSize:12,color:"#666",marginBottom:16,lineHeight:1.6}}>
-              This will update the SOP Revision from <strong>{station.sopRev}</strong> to <strong>{pendingRev}</strong>
-              and add a new entry to the revision log. The SOP ID will update automatically.
+              The SOP ID and revision log will update automatically.
             </div>
-            <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:6,padding:10,marginBottom:16,fontSize:12,color:"#7c4d00"}}>
-              ⚠️ <strong>Remember:</strong> upload the updated SOP to Windchill after publishing this revision.
+
+            {/* Revision letter — editable, defaults to next letter */}
+            <div style={{marginBottom:14}}>
+              <label style={{fontSize:12,fontWeight:600,color:"#333",display:"block",marginBottom:4}}>
+                New Revision Letter *
+              </label>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:13,color:"#888"}}>Current: <strong style={{color:TEAL_DARK}}>{station.sopRev}</strong></span>
+                <span style={{color:"#bbb"}}>→</span>
+                <input
+                  value={pendingRev}
+                  onChange={e=>setPendingRev(e.target.value.toUpperCase().trim())}
+                  placeholder={proposed}
+                  maxLength={4}
+                  style={{width:72,padding:"6px 9px",border:`2px solid ${TEAL}`,borderRadius:5,fontSize:15,fontWeight:700,textAlign:"center",color:TEAL_DARK}}
+                />
+                <span style={{fontSize:11,color:"#aaa"}}>(default: {proposed})</span>
+              </div>
             </div>
+
+            {/* Description */}
             <div style={{marginBottom:16}}>
               <label style={{fontSize:12,fontWeight:600,color:"#333",display:"block",marginBottom:4}}>
                 Revision Description *
               </label>
               <input value={revDesc} onChange={e=>setRevDesc(e.target.value)}
-                placeholder={`Describe what changed in Rev ${pendingRev}…`}
+                placeholder={`Describe what changed in Rev ${pendingRev||proposed}…`}
                 autoFocus
                 onKeyDown={e=>e.key==="Enter"&&confirmRev()}
                 style={{width:"100%",padding:"7px 9px",border:"1px solid #ccc",borderRadius:5,fontSize:13}}/>
             </div>
+
+            <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:6,padding:10,marginBottom:16,fontSize:12,color:"#7c4d00"}}>
+              ⚠️ <strong>Remember:</strong> upload the updated SOP to Windchill after publishing this revision.
+            </div>
+
             <div style={{display:"flex",gap:10}}>
               <button onClick={confirmRev}
                 style={{flex:1,background:TEAL,color:"white",border:"none",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:700}}>
-                ✓ Confirm Rev {pendingRev}
+                ✓ Confirm Rev {pendingRev||proposed}
               </button>
               <button onClick={()=>setShowRevModal(false)}
                 style={{flex:1,background:"#f5f5f5",color:"#555",border:"1px solid #ddd",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13}}>
@@ -928,7 +1121,7 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
             <input value={station.sopId} readOnly style={{width:"100%",padding:"5px 7px",border:"1px solid #ccc",borderRadius:4,fontSize:13,background:"#f5f5f5",fontFamily:"monospace",fontWeight:700,color:TEAL_DARK}}/>
           </div>
           {[{l:"Purpose",f:"purpose",rows:2},{l:"Safety Summary",f:"safety",rows:3},
-            {l:"Tools & Equipment",f:"tools",rows:2},{l:"General Notes",f:"generalNotes",rows:2}
+            {l:"General Notes",f:"generalNotes",rows:2}
           ].map(({l,f,rows})=>(
             <div key={f} style={{marginBottom:8}}>
               <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>{l}</label>
@@ -936,6 +1129,15 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
                 style={{width:"100%",padding:"5px 7px",border:"1px solid #ccc",borderRadius:4,fontSize:12,resize:"vertical"}}/>
             </div>
           ))}
+          {/* Tools & Equipment list */}
+          <ToolListEditor
+            toolList={station.toolList||[]}
+            onChange={list=>{
+              const toolStr=list.map(t=>t.partNo?`${t.name} (${t.partNo})`:t.name).join(", ");
+              u("toolList",list);
+              u("tools",toolStr);
+            }}
+          />
           {/* Revision Log */}
           <RevisionLogPanel
             station={station}
@@ -990,6 +1192,8 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
                 allStations={allStations}
                 thisStationId={station.id}
                 onMoveTask={(targetId)=>moveTask(i,targetId)}
+                stationToolList={station.toolList||[]}
+                stationDrawings={station.drawings||[]}
               />
             ))}
             <button onClick={addTask} style={{background:TEAL_LIGHT,border:`2px dashed ${TEAL}`,borderRadius:8,padding:"10px 18px",cursor:"pointer",fontSize:13,width:"100%",color:TEAL_DARK,fontWeight:600,marginTop:6}}>
