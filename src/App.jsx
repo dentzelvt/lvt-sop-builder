@@ -36,7 +36,9 @@ const mkStation = () => ({
   purpose:"",
   safety:"• Always wear appropriate Personal Protective Equipment (PPE), including safety glasses and gloves as required.\n• Observe all warnings, cautions, and notes throughout this document.",
   drawings:[{drawingNo:"",description:""}],
-  tools:"", revisionLog:"A - Initial Release",
+  tools:"",
+  revisionLog:"A - Initial Release",
+  revisionEntries:[{rev:"A", date:new Date().toLocaleDateString(), description:"Initial Release", by:""}],
   generalNotes:"Tasks may be completed in any order, if steps are numbered they must be followed in order as specified.",
   stationImages:[], tasks:[],
 });
@@ -664,6 +666,184 @@ function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStat
   );
 }
 
+// ─── Revision Log Panel ───────────────────────────────────────────────────────
+function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
+  const [showRevModal, setShowRevModal]   = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [pendingRev, setPendingRev]       = useState("");
+  const [revDesc, setRevDesc]             = useState("");
+  const [editIdx, setEditIdx]             = useState(null);
+  const [editDesc, setEditDesc]           = useState("");
+  const [editConfirmed, setEditConfirmed] = useState(false);
+
+  const entries = station.revisionEntries || [];
+
+  // Next letter helper  A→B, B→C … Z→AA etc.
+  const nextRev = (current) => {
+    const c = (current||"A").toUpperCase().trim();
+    if(c.length===1) {
+      const code = c.charCodeAt(0);
+      return code < 90 ? String.fromCharCode(code+1) : "AA";
+    }
+    // multi-char: increment last letter
+    const arr = c.split("");
+    let i = arr.length-1;
+    while(i>=0){
+      if(arr[i].charCodeAt(0)<90){ arr[i]=String.fromCharCode(arr[i].charCodeAt(0)+1); break; }
+      arr[i]="A"; i--;
+    }
+    if(i<0) arr.unshift("A");
+    return arr.join("");
+  };
+
+  const proposed = nextRev(station.sopRev);
+
+  // ── New revision flow ────────────────────────────────────────────────────────
+  const startRevChange = () => {
+    setPendingRev(proposed);
+    setRevDesc("");
+    setShowRevModal(true);
+  };
+  const confirmRev = () => {
+    if(!revDesc.trim()){ alert("Please enter a description for this revision."); return; }
+    onRevChange(pendingRev, revDesc.trim());
+    setShowRevModal(false);
+  };
+
+  // ── Edit entry flow ──────────────────────────────────────────────────────────
+  const startEdit = (i) => {
+    setEditIdx(i);
+    setEditDesc(entries[i].description);
+    setEditConfirmed(false);
+    setShowEditModal(true);
+  };
+  const confirmEdit = () => {
+    if(!editDesc.trim()){ alert("Description cannot be empty."); return; }
+    onEntryEdit(editIdx, editDesc.trim());
+    setShowEditModal(false);
+  };
+
+  return (
+    <div style={{marginBottom:8}}>
+      {/* Header row */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+        <label style={{fontSize:11,color:"#555",fontWeight:600}}>Revision Log</label>
+        <button onClick={startRevChange}
+          style={{fontSize:11,padding:"3px 10px",background:TEAL,color:"white",border:"none",borderRadius:4,cursor:"pointer",fontWeight:600}}>
+          + New Revision ({proposed})
+        </button>
+      </div>
+
+      {/* Log table */}
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,border:"1px solid #ddd",borderRadius:4,overflow:"hidden"}}>
+        <thead>
+          <tr style={{background:"#e0e0e0"}}>
+            <th style={{padding:"5px 8px",textAlign:"left",width:40}}>Rev</th>
+            <th style={{padding:"5px 8px",textAlign:"left",width:90}}>Date</th>
+            <th style={{padding:"5px 8px",textAlign:"left"}}>Description</th>
+            <th style={{padding:"5px 8px",textAlign:"left",width:80}}>By</th>
+            <th style={{padding:"5px 8px",width:36}}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.length===0 && (
+            <tr><td colSpan={5} style={{padding:"8px",color:"#aaa",textAlign:"center",fontStyle:"italic"}}>No revisions yet</td></tr>
+          )}
+          {entries.map((e,i)=>(
+            <tr key={i} style={{background:i%2===0?"white":"#fafafa",borderTop:"1px solid #eee"}}>
+              <td style={{padding:"5px 8px",fontWeight:700,color:TEAL_DARK}}>{e.rev}</td>
+              <td style={{padding:"5px 8px",color:"#666"}}>{e.date}</td>
+              <td style={{padding:"5px 8px"}}>{e.description}</td>
+              <td style={{padding:"5px 8px",color:"#666"}}>{e.by}</td>
+              <td style={{padding:"3px 6px",textAlign:"center"}}>
+                <button onClick={()=>startEdit(i)} title="Edit description"
+                  style={{background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:3,padding:"1px 6px",cursor:"pointer",fontSize:11}}>
+                  ✏️
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* ── New Revision Modal ─────────────────────────────────────────────── */}
+      {showRevModal && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"white",borderRadius:12,padding:28,maxWidth:460,width:"90%",boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}}>
+            <div style={{fontWeight:700,fontSize:16,color:TEAL_DARK,marginBottom:6}}>
+              Create New Revision: {station.sopRev} → {pendingRev}
+            </div>
+            <div style={{fontSize:12,color:"#666",marginBottom:16,lineHeight:1.6}}>
+              This will update the SOP Revision from <strong>{station.sopRev}</strong> to <strong>{pendingRev}</strong>
+              and add a new entry to the revision log. The SOP ID will update automatically.
+            </div>
+            <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:6,padding:10,marginBottom:16,fontSize:12,color:"#7c4d00"}}>
+              ⚠️ <strong>Remember:</strong> upload the updated SOP to Windchill after publishing this revision.
+            </div>
+            <div style={{marginBottom:16}}>
+              <label style={{fontSize:12,fontWeight:600,color:"#333",display:"block",marginBottom:4}}>
+                Revision Description *
+              </label>
+              <input value={revDesc} onChange={e=>setRevDesc(e.target.value)}
+                placeholder={`Describe what changed in Rev ${pendingRev}…`}
+                autoFocus
+                onKeyDown={e=>e.key==="Enter"&&confirmRev()}
+                style={{width:"100%",padding:"7px 9px",border:"1px solid #ccc",borderRadius:5,fontSize:13}}/>
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={confirmRev}
+                style={{flex:1,background:TEAL,color:"white",border:"none",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:700}}>
+                ✓ Confirm Rev {pendingRev}
+              </button>
+              <button onClick={()=>setShowRevModal(false)}
+                style={{flex:1,background:"#f5f5f5",color:"#555",border:"1px solid #ddd",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13}}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Entry Modal ────────────────────────────────────────────────── */}
+      {showEditModal && editIdx!==null && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"white",borderRadius:12,padding:28,maxWidth:460,width:"90%",boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}}>
+            <div style={{fontWeight:700,fontSize:16,color:TEAL_DARK,marginBottom:6}}>
+              Edit Rev {entries[editIdx]?.rev} Description
+            </div>
+            <div style={{fontSize:12,color:"#666",marginBottom:12,lineHeight:1.6}}>
+              You are editing the description for an existing revision entry.
+            </div>
+            <div style={{marginBottom:12}}>
+              <label style={{fontSize:12,fontWeight:600,color:"#333",display:"block",marginBottom:4}}>Description</label>
+              <input value={editDesc} onChange={e=>setEditDesc(e.target.value)} autoFocus
+                style={{width:"100%",padding:"7px 9px",border:"1px solid #ccc",borderRadius:5,fontSize:13}}/>
+            </div>
+            {/* Windchill reminder checkbox */}
+            <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:6,padding:10,marginBottom:16}}>
+              <label style={{fontSize:12,color:"#7c4d00",display:"flex",alignItems:"flex-start",gap:8,cursor:"pointer"}}>
+                <input type="checkbox" checked={editConfirmed} onChange={e=>setEditConfirmed(e.target.checked)}
+                  style={{marginTop:2,flexShrink:0}}/>
+                <span>I understand this changes the revision record. I will upload the updated SOP to <strong>Windchill</strong> after saving.</span>
+              </label>
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>{ if(!editConfirmed){alert("Please confirm you will update Windchill before saving.");return;} confirmEdit(); }}
+                style={{flex:1,background:TEAL,color:"white",border:"none",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:700}}>
+                ✓ Save Change
+              </button>
+              <button onClick={()=>setShowEditModal(false)}
+                style={{flex:1,background:"#f5f5f5",color:"#555",border:"1px solid #ddd",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13}}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Station Editor ───────────────────────────────────────────────────────────
 function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPreview, allStations }) {
   const u=(f,v)=>{
@@ -728,7 +908,7 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
           {/* Station fields */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:8}}>
             {[{l:"Station No. *",f:"stationNo",ph:"REF-WIP-02"},{l:"Station Description",f:"stationDesc",ph:"BATTERY"},
-              {l:"ASM Version",f:"asmVersion",ph:"2"},{l:"SOP Revision",f:"sopRev",ph:"A"},{l:"Revised By",f:"revisedBy",ph:"Name"}
+              {l:"ASM Version",f:"asmVersion",ph:"2"},{l:"Revised By",f:"revisedBy",ph:"Name"}
             ].map(({l,f,ph})=>(
               <div key={f}>
                 <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>{l}</label>
@@ -736,13 +916,19 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
                   style={{width:"100%",padding:"5px 7px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}/>
               </div>
             ))}
+            {/* SOP Revision — triggers confirmation dialog on change */}
+            <div>
+              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>SOP Revision</label>
+              <input value={station.sopRev||""} readOnly
+                style={{width:"100%",padding:"5px 7px",border:"1px solid #ccc",borderRadius:4,fontSize:12,background:"#f5f5f5",cursor:"not-allowed",fontWeight:700,color:TEAL_DARK}}/>
+            </div>
           </div>
           <div style={{marginBottom:10}}>
             <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>Generated SOP ID</label>
             <input value={station.sopId} readOnly style={{width:"100%",padding:"5px 7px",border:"1px solid #ccc",borderRadius:4,fontSize:13,background:"#f5f5f5",fontFamily:"monospace",fontWeight:700,color:TEAL_DARK}}/>
           </div>
           {[{l:"Purpose",f:"purpose",rows:2},{l:"Safety Summary",f:"safety",rows:3},
-            {l:"Tools & Equipment",f:"tools",rows:2},{l:"Revision Log",f:"revisionLog",rows:2},{l:"General Notes",f:"generalNotes",rows:2}
+            {l:"Tools & Equipment",f:"tools",rows:2},{l:"General Notes",f:"generalNotes",rows:2}
           ].map(({l,f,rows})=>(
             <div key={f} style={{marginBottom:8}}>
               <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>{l}</label>
@@ -750,6 +936,26 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
                 style={{width:"100%",padding:"5px 7px",border:"1px solid #ccc",borderRadius:4,fontSize:12,resize:"vertical"}}/>
             </div>
           ))}
+          {/* Revision Log */}
+          <RevisionLogPanel
+            station={station}
+            onUpdate={onUpdate}
+            onRevChange={(newRev, desc)=>{
+              const entry={rev:newRev, date:new Date().toLocaleDateString(), description:desc, by:station.revisedBy||""};
+              const entries=[...(station.revisionEntries||[]), entry];
+              const logText=entries.map(e=>`${e.rev} - ${e.description} (${e.date}${e.by?" | "+e.by:""})`).join("\n");
+              const upd={...station, sopRev:newRev, revisionEntries:entries, revisionLog:logText};
+              upd.sopId=genSopId(upd.stationNo,upd.asmVersion,upd.sopRev);
+              upd.tasks=upd.tasks.map(t=>({...t,taskId:genTaskId(upd.sopId,t.taskNo)}));
+              onUpdate(upd);
+            }}
+            onEntryEdit={(idx, desc)=>{
+              const entries=[...(station.revisionEntries||[])];
+              entries[idx]={...entries[idx], description:desc};
+              const logText=entries.map(e=>`${e.rev} - ${e.description} (${e.date}${e.by?" | "+e.by:""})`).join("\n");
+              onUpdate({...station, revisionEntries:entries, revisionLog:logText});
+            }}
+          />
           {/* Drawings */}
           <div style={{marginBottom:10}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
