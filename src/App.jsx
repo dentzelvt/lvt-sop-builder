@@ -381,25 +381,37 @@ function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allSta
           <input value={step.stepNumber} onChange={e=>u("stepNumber",e.target.value)} placeholder={String(idx+1)}
             style={{width:44,padding:"3px 5px",border:"1px solid #ccc",borderRadius:4,fontSize:12,textAlign:"center"}}/>
         )}
-        {/* Multi-icon picker */}
-        <div style={{display:"flex",gap:3,flexWrap:"wrap",alignItems:"center"}}>
-          {Object.entries(ICONS).filter(([k])=>k!=="none").map(([k,v])=>{
-            const active=(step.icons||[]).includes(k);
-            return (
-              <button key={k} title={v.label}
-                onClick={()=>{
-                  const cur=step.icons||[];
-                  u("icons", active ? cur.filter(i=>i!==k) : [...cur,k]);
-                }}
-                style={{padding:"2px 6px",fontSize:13,borderRadius:4,cursor:"pointer",border:active?"2px solid #00897b":"1px solid #ccc",background:active?"#e0f2f1":"#f5f5f5",lineHeight:1.4}}>
-                {v.emoji}
-              </button>
-            );
-          })}
-          {(step.icons||[]).length>0 &&
-            <button onClick={()=>u("icons",[])} title="Clear icons"
-              style={{padding:"1px 6px",fontSize:10,borderRadius:4,cursor:"pointer",border:"1px solid #ef9a9a",background:"#ffebee",color:"#c62828"}}>✕ clear</button>
-          }
+        {/* Multi-icon dropdown */}
+        <div style={{display:"flex",alignItems:"center",gap:4}}>
+          <select
+            multiple
+            value={step.icons||[]}
+            onChange={e=>{
+              const sel=Array.from(e.target.selectedOptions).map(o=>o.value);
+              u("icons",sel);
+            }}
+            style={{padding:"2px 4px",border:"1px solid #ccc",borderRadius:4,fontSize:12,
+                    height:28,minWidth:175,cursor:"pointer"}}
+            title="Hold Ctrl / Cmd to select multiple icons"
+          >
+            {Object.entries(ICONS).filter(([k])=>k!=="none").map(([k,v])=>(
+              <option key={k} value={k}
+                style={{background:(step.icons||[]).includes(k)?"#e0f2f1":"white",
+                        fontWeight:(step.icons||[]).includes(k)?"700":"400"}}>
+                {v.emoji} {v.label.replace(/^\S+\s/,"")}
+              </option>
+            ))}
+          </select>
+          {(step.icons||[]).length>0 && (
+            <span style={{fontSize:14,letterSpacing:2}} title="Selected icons">
+              {(step.icons||[]).map(k=>ICONS[k]?.emoji||"").join(" ")}
+            </span>
+          )}
+          {(step.icons||[]).length>0 && (
+            <button onClick={()=>u("icons",[])} title="Clear all icons"
+              style={{padding:"1px 5px",fontSize:10,borderRadius:4,cursor:"pointer",
+                      border:"1px solid #ef9a9a",background:"#ffebee",color:"#c62828"}}>✕</button>
+          )}
         </div>
         <input value={step.cycleTime} onChange={e=>u("cycleTime",e.target.value)} placeholder="Time (min)" type="number" min="0" step="0.01"
           style={{width:90,padding:"3px 5px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}/>
