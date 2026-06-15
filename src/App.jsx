@@ -174,14 +174,34 @@ const buildPrintHTML = (station, screen=false) => {
 
   const taskPages = station.tasks.map((task, ti) => {
     const tImgs = (task.taskImages||[]).map(src=>`<img src="${src}" class="thumb"/>`).join("");
+
+    // ── Helpers to render tool/drawing tags for task or step ──────────────────
+    const toolLabel = (name) => {
+      const t = (station.toolList||[]).find(t=>t.name===name);
+      return t ? (t.partNo ? `${t.name} <span class="ref-pn">(${safe(t.partNo)})</span>` : safe(t.name)) : safe(name);
+    };
+    const drawLabel = (no) => {
+      const d = (station.drawings||[]).find(d=>d.drawingNo===no);
+      return d ? `${safe(d.drawingNo)}${d.description?" — "+safe(d.description):""}` : safe(no);
+    };
+    const refTags = (tools, drawings) => {
+      const parts = [];
+      if(tools&&tools.length) parts.push(`<span class="ref-group"><span class="ref-hdr">🔧 Tools:</span> ${tools.map(toolLabel).join(" &nbsp;·&nbsp; ")}</span>`);
+      if(drawings&&drawings.length) parts.push(`<span class="ref-group"><span class="ref-hdr">📐 Drawings:</span> ${drawings.map(drawLabel).join(" &nbsp;·&nbsp; ")}</span>`);
+      return parts.length ? `<div class="ref-bar">${parts.join("&ensp;|&ensp;")}</div>` : "";
+    };
+
+    const taskRefs = refTags(task.selectedTools, task.selectedDrawings);
+
     const stepRows = task.steps.map((step,si) => {
       const ico = (step.icons&&step.icons.length?step.icons:step.icon&&step.icon!=="none"?[step.icon]:[]).map(k=>ICONS[k]?.emoji||"").filter(Boolean).join(" ")+(((step.icons&&step.icons.length)||(step.icon&&step.icon!=="none"))?" ":"");
       const num = step.useStepNumber ? `<strong>${step.stepNumber||si+1}</strong>` : "";
       const img = step.image ? `<div class="step-img-wrap"><img src="${step.image}" class="sthumb"/></div>` : "";
       const kp  = step.keyPoints ? `<br/><em class="kp">${safe(step.keyPoints)}</em>` : "";
+      const stepRefs = refTags(step.selectedTools, step.selectedDrawings);
       return `<tr class="step-row">
         <td class="step-num">${num}</td>
-        <td class="step-desc">${ico}<strong>${safe(step.description)}</strong>${kp}${img}</td>
+        <td class="step-desc">${ico}<strong>${safe(step.description)}</strong>${kp}${stepRefs}${img}</td>
         <td class="step-time">${step.cycleTime?parseFloat(step.cycleTime).toFixed(2):""}</td>
       </tr>`;
     }).join("");
@@ -200,6 +220,7 @@ const buildPrintHTML = (station, screen=false) => {
               <td colspan="2" class="sh">&nbsp;</td>
               <td class="sh" style="text-align:right;white-space:nowrap">Est. Cycle Time:&nbsp;${fmtTime(sumSteps(task.steps))}</td>
             </tr>
+            ${taskRefs ? `<tr><td colspan="3" class="ref-row">${taskRefs}</td></tr>` : ""}
           </table>
           <table class="bt steps-table" cellspacing="0">
             <thead>
