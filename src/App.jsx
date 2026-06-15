@@ -46,16 +46,20 @@ const mkTask = (sopId, taskNo) => ({
 });
 const mkStep = () => ({
   id:Date.now()+Math.random(), useStepNumber:true, stepNumber:"",
-  description:"", keyPoints:"", icon:"none", cycleTime:"", image:null,
+  description:"", keyPoints:"", icons:[], cycleTime:"", image:null,
 });
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
 const lsSave = (s) => { try { localStorage.setItem(SAVE_KEY, JSON.stringify({version:1,savedAt:new Date().toISOString(),stations:s})); } catch{} };
 const lsLoad = ()  => { try { const r=localStorage.getItem(SAVE_KEY); return r?JSON.parse(r).stations:null; } catch{ return null; } };
-const saveFile = (stations) => {
+const saveFile = (stations, station=null) => {
+  // If a single station is passed name the file after it, otherwise use a date stamp
+  const name = station
+    ? [station.sopId, station.stationDesc].filter(Boolean).join("_").replace(/[^a-zA-Z0-9_\-]/g,"_") || "SOP_save"
+    : `SOP_save_${new Date().toISOString().slice(0,10)}`;
   const a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob([JSON.stringify({version:1,savedAt:new Date().toISOString(),stations},null,2)],{type:"application/json"}));
-  a.download=`sop_save_${new Date().toISOString().slice(0,10)}.json`; a.click();
+  a.download=`${name}.json`; a.click();
 };
 const loadFile = (file,cb) => {
   const r=new FileReader();
@@ -69,7 +73,7 @@ const exportCSV = (stations) => {
   stations.forEach(s=>s.tasks.forEach(t=>{
     if(!t.steps.length){ rows.push([s.sopId,s.stationNo,s.stationDesc||"",t.taskNo,t.taskId,t.description,"","","","",""]); return; }
     t.steps.forEach((st,si)=>rows.push([s.sopId,s.stationNo,s.stationDesc||"",t.taskNo,t.taskId,t.description,
-      st.stepNumber||si+1,st.description,st.keyPoints,ICONS[st.icon]?.label||"",parseFloat(st.cycleTime)||0]));
+      st.stepNumber||si+1,st.description,st.keyPoints,(st.icons||[st.icon]).filter(i=>i&&i!=="none").map(i=>ICONS[i]?.label||i).join("; "),parseFloat(st.cycleTime)||0]));
   }));
   const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\r\n");
   const a=document.createElement("a");
@@ -146,7 +150,7 @@ const buildPrintHTML = (station, screen=false) => {
   const taskPages = station.tasks.map((task, ti) => {
     const tImgs = (task.taskImages||[]).map(src=>`<img src="${src}" class="thumb"/>`).join("");
     const stepRows = task.steps.map((step,si) => {
-      const ico = step.icon!=="none" ? (ICONS[step.icon]?.emoji+" ") : "";
+      const ico = (step.icons&&step.icons.length?step.icons:step.icon&&step.icon!=="none"?[step.icon]:[]).map(k=>ICONS[k]?.emoji||"").filter(Boolean).join(" ")+(((step.icons&&step.icons.length)||(step.icon&&step.icon!=="none"))?" ":"");
       const num = step.useStepNumber ? `<strong>${step.stepNumber||si+1}</strong>` : "";
       const img = step.image ? `<div class="step-img-wrap"><img src="${step.image}" class="sthumb"/></div>` : "";
       const kp  = step.keyPoints ? `<br/><em class="kp">${safe(step.keyPoints)}</em>` : "";
@@ -377,9 +381,26 @@ function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allSta
           <input value={step.stepNumber} onChange={e=>u("stepNumber",e.target.value)} placeholder={String(idx+1)}
             style={{width:44,padding:"3px 5px",border:"1px solid #ccc",borderRadius:4,fontSize:12,textAlign:"center"}}/>
         )}
-        <select value={step.icon} onChange={e=>u("icon",e.target.value)} style={{padding:"3px 5px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}>
-          {Object.entries(ICONS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
-        </select>
+        {/* Multi-icon picker */}
+        <div style={{display:"flex",gap:3,flexWrap:"wrap",alignItems:"center"}}>
+          {Object.entries(ICONS).filter(([k])=>k!=="none").map(([k,v])=>{
+            const active=(step.icons||[]).includes(k);
+            return (
+              <button key={k} title={v.label}
+                onClick={()=>{
+                  const cur=step.icons||[];
+                  u("icons", active ? cur.filter(i=>i!==k) : [...cur,k]);
+                }}
+                style={{padding:"2px 6px",fontSize:13,borderRadius:4,cursor:"pointer",border:active?"2px solid #00897b":"1px solid #ccc",background:active?"#e0f2f1":"#f5f5f5",lineHeight:1.4}}>
+                {v.emoji}
+              </button>
+            );
+          })}
+          {(step.icons||[]).length>0 &&
+            <button onClick={()=>u("icons",[])} title="Clear icons"
+              style={{padding:"1px 6px",fontSize:10,borderRadius:4,cursor:"pointer",border:"1px solid #ef9a9a",background:"#ffebee",color:"#c62828"}}>✕ clear</button>
+          }
+        </div>
         <input value={step.cycleTime} onChange={e=>u("cycleTime",e.target.value)} placeholder="Time (min)" type="number" min="0" step="0.01"
           style={{width:90,padding:"3px 5px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}/>
         <div style={{display:"flex",gap:3,marginLeft:"auto"}}>
@@ -618,6 +639,7 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
         <div style={{display:"flex",gap:6,flexShrink:0}}>
           <button onClick={e=>{e.stopPropagation();onPreview();}} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>👁 Preview</button>
           <button onClick={e=>{e.stopPropagation();exportPDF(station);}} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>📄 PDF</button>
+          <button onClick={e=>{e.stopPropagation();saveFile([station],station);}} title="Save this station to a file" style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>💾 Save</button>
           <button onClick={e=>{e.stopPropagation();onDelete();}} style={{background:"rgba(200,0,0,0.12)",border:"1px solid rgba(200,0,0,0.25)",borderRadius:4,padding:"3px 8px",cursor:"pointer",color:"#c62828",fontSize:12}}>✕</button>
         </div>
       </div>
@@ -854,7 +876,7 @@ export default function App() {
         <div style={{display:"flex",alignItems:"center",gap:5,padding:"8px 0"}}>
           {saveMsg&&<span style={{fontSize:11,color:"#a5d6a7",marginRight:4}}>{saveMsg}</span>}
           <button onClick={()=>{lsSave(stations);setShowSaveInfo(true);}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>💾 Save</button>
-          <button onClick={()=>{saveFile(stations);flash("✓ File downloaded");}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>⬇️ Export Save</button>
+          <button onClick={()=>{saveFile(stations, stations.length===1?stations[0]:null);flash("✓ File downloaded");}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>⬇️ Export Save</button>
           <button onClick={()=>loadRef.current.click()} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📂 Load File</button>
           <input ref={loadRef} type="file" accept=".json" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;loadFile(f,loaded=>{setStations(loaded);setActive(null);flash("✓ Loaded");});e.target.value="";}}/>
           <button onClick={()=>{exportCSV(stations);flash("✓ CSV downloaded");}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📊 CSV</button>
