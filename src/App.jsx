@@ -108,7 +108,7 @@ const lsLoad = () => {
     return { stations:(d.stations||[]).map(migrateStation), lines:d.lines||[] };
   } catch{ return null; }
 };
-const saveFile = (stations, lines=[], station=null, lineName=null, explicitName=null) => {
+const saveFile = async (stations, lines=[], station=null, lineName=null, explicitName=null) => {
   const date = new Date().toISOString().slice(0,10);
   const name = explicitName
     ? explicitName
@@ -117,9 +117,32 @@ const saveFile = (stations, lines=[], station=null, lineName=null, explicitName=
       : lineName
         ? `${lineName.replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_")}_${date}`
         : `SOP_save_${date}`;
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(new Blob([JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines},null,2)],{type:"application/json"}));
-  a.download=`${name}.json`; a.click();
+
+  const json = JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines},null,2);
+
+  // Use File System Access API (Chrome/Edge) for Save As dialog
+  if(window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: `${name}.json`,
+        types: [{ description:"SOP Builder Save File", accept:{"application/json":[".json"]} }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(json);
+      await writable.close();
+      return;
+    } catch(e) {
+      // User cancelled the picker — don't fall through to download
+      if(e.name === "AbortError") return;
+      // Any other error (permissions etc.) — fall through to legacy download
+    }
+  }
+
+  // Fallback: standard download (goes to default Downloads folder)
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([json],{type:"application/json"}));
+  a.download = `${name}.json`;
+  a.click();
 };
 const loadFile = (file,cb) => {
   const r=new FileReader();
