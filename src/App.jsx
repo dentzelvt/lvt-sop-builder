@@ -794,7 +794,13 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
     if(activeLineId===id){ setActiveLineId(null); setActiveStationId(null); }
   };
   const addStationToLine = (line) => {
-    const s = mkStation();
+    let s = mkStation();
+    const pos = line.stationIds.length + 1; // position this will occupy
+    if(line.stationIdentifier) {
+      const newNo    = autoStationNo(line.stationIdentifier, pos);
+      const newSopId = genSopId(newNo, s.asmVersion, s.sopRev);
+      s = { ...s, stationNo: newNo, sopId: newSopId };
+    }
     onStationsChange(prev => [...prev, s]);
     updLine({...line, stationIds:[...line.stationIds, s.id]});
     setActiveStationId(s.id);
@@ -2686,6 +2692,13 @@ export default function App() {
         <div style={{flex:1}}/>
         <div style={{display:"flex",alignItems:"center",gap:5,padding:"8px 0"}}>
           {saveMsg&&<span style={{fontSize:11,color:"#a5d6a7",marginRight:4}}>{saveMsg}</span>}
+          <button onClick={()=>{
+            const base=window.location.origin+window.location.pathname.replace(/\/[^/]*$/,"/");
+            window.open(base+"user-guide.html","_blank","noopener");
+          }} title="Open User Guide"
+            style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white",display:"flex",alignItems:"center",gap:5}}>
+            ❓ Help
+          </button>
           <button onClick={()=>{lsSave(stations,lines);setShowSaveInfo(true);}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>💾 Save</button>
           <button onClick={()=>setShowExportSave(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>⬇️ Export Save</button>
           <button onClick={()=>setShowImport(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📥 Import</button>
@@ -2711,17 +2724,7 @@ export default function App() {
 
         {tab==="balance" && (
           <div style={{background:"white",borderRadius:12,padding:22,boxShadow:"0 1px 5px rgba(0,0,0,0.07)"}}>
-            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:16}}>
-              <button onClick={()=>{
-                const base = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, "/");
-                window.open(base + "planogram.html", "_blank", "noopener");
-              }}
-                style={{background:TEAL,color:"white",border:"none",borderRadius:7,padding:"8px 18px",
-                        cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",gap:8,
-                        boxShadow:"0 2px 6px rgba(0,137,123,0.3)"}}>
-                📦 Open Planogram Tool
-              </button>
-            </div>
+
             <LineBalance stations={stations} lines={lines}/>
           </div>
         )}
