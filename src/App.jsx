@@ -692,8 +692,9 @@ function RichTextEditor({ value, onChange, placeholder, minRows=2 }) {
 }
 
 // ─── Lines Manager ────────────────────────────────────────────────────────────
-function LinesManager({ lines, stations, onLinesChange, onStationsChange, setActiveStation, setTab }) {
-  const [activeLineId, setActiveLineId] = useState(null);
+function LinesManager({ lines, stations, onLinesChange, onStationsChange, updStation, preview, setPreview }) {
+  const [activeLineId,    setActiveLineId]    = useState(null);
+  const [activeStationId, setActiveStationId] = useState(null);
 
   const addLine = () => {
     const l = mkLine();
@@ -701,13 +702,18 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, setAct
     setActiveLineId(l.id);
   };
   const updLine = (updated) => onLinesChange(lines.map(l => l.id===updated.id ? updated : l));
-  const delLine = (id) => { onLinesChange(lines.filter(l=>l.id!==id)); if(activeLineId===id) setActiveLineId(null); };
+  const delLine = (id) => {
+    onLinesChange(lines.filter(l=>l.id!==id));
+    if(activeLineId===id){ setActiveLineId(null); setActiveStationId(null); }
+  };
+  const addStationToLine = (line) => {
+    const s = mkStation();
+    onStationsChange(prev => [...prev, s]);
+    updLine({...line, stationIds:[...line.stationIds, s.id]});
+    setActiveStationId(s.id);
+  };
 
-  // Stations not yet assigned to any line
   const assignedIds = new Set(lines.flatMap(l=>l.stationIds));
-  const unassigned  = stations.filter(s=>!assignedIds.has(s.id));
-
-  const activeLine = lines.find(l=>l.id===activeLineId);
 
   return (
     <div>
@@ -732,33 +738,37 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, setAct
 
       {lines.map(line => {
         const lineStations = line.stationIds.map(id=>stations.find(s=>s.id===id)).filter(Boolean);
-        const totalTime = lineStations.reduce((sum,s)=>sum+sumTasks(s.tasks),0);
-        const isOpen = activeLineId===line.id;
+        const totalTime    = lineStations.reduce((sum,s)=>sum+sumTasks(s.tasks),0);
+        const isLineOpen   = activeLineId===line.id;
 
         return (
-          <div key={line.id} style={{border:isOpen?`2px solid ${TEAL}`:"1px solid #ddd",borderRadius:10,marginBottom:10,
-              overflow:"hidden",background:"white",boxShadow:isOpen?"0 2px 12px rgba(0,137,123,0.12)":"0 1px 3px rgba(0,0,0,0.06)"}}>
-            {/* Line header */}
-            <div onClick={()=>setActiveLineId(isOpen?null:line.id)}
-              style={{background:isOpen?TEAL:"#f5f5f5",color:isOpen?"white":"#333",padding:"10px 14px",
-                      cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",userSelect:"none"}}>
+          <div key={line.id} style={{border:isLineOpen?`2px solid ${TEAL}`:"1px solid #ddd",borderRadius:10,marginBottom:10,
+              overflow:"visible",background:"white",boxShadow:isLineOpen?"0 2px 12px rgba(0,137,123,0.12)":"0 1px 3px rgba(0,0,0,0.06)"}}>
+
+            {/* ── Line header bar ── */}
+            <div onClick={()=>{ setActiveLineId(isLineOpen?null:line.id); if(isLineOpen) setActiveStationId(null); }}
+              style={{background:isLineOpen?TEAL:"#f5f5f5",color:isLineOpen?"white":"#333",padding:"10px 14px",
+                      cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",
+                      userSelect:"none",borderRadius:isLineOpen?"8px 8px 0 0":"8px"}}>
               <div style={{display:"flex",gap:10,alignItems:"center"}}>
                 <span style={{fontWeight:700,fontSize:15}}>🏗️ {line.name||"New Line"}</span>
                 <span style={{fontSize:12,opacity:0.8}}>{lineStations.length} station(s) · ⏱ {fmtTime(totalTime)}</span>
               </div>
-              <div style={{display:"flex",gap:6}}>
-                <button onClick={e=>{e.stopPropagation();
-                  // Export all PDFs for this line's stations
-                  lineStations.forEach((s,i)=>setTimeout(()=>exportPDF({...s,lineName:line.name}),i*500));
-                }} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isOpen?"white":"#333"}}>
+              <div style={{display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
+                <button onClick={()=>addStationToLine(line)}
+                  style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isLineOpen?"white":"#333"}}>
+                  + Station
+                </button>
+                <button onClick={()=>lineStations.forEach((s,i)=>setTimeout(()=>exportPDF({...s,lineName:line.name}),i*500))}
+                  style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isLineOpen?"white":"#333"}}>
                   📄 All PDFs
                 </button>
-                <button onClick={e=>{e.stopPropagation();delLine(line.id);}}
+                <button onClick={()=>delLine(line.id)}
                   style={{background:"rgba(200,0,0,0.12)",border:"1px solid rgba(200,0,0,0.25)",borderRadius:4,padding:"3px 8px",cursor:"pointer",color:"#c62828",fontSize:12}}>✕</button>
               </div>
             </div>
 
-            {isOpen && (
+            {isLineOpen && (
               <div style={{padding:16}}>
                 {/* Line name + description */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10,marginBottom:14}}>
@@ -767,7 +777,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, setAct
                     <input value={line.name} onChange={e=>updLine({...line,name:e.target.value})}
                       placeholder="e.g. Powder Coat, Final Assembly"
                       style={{width:"100%",padding:"6px 8px",border:"1px solid #ccc",borderRadius:4,fontSize:13,fontWeight:600}}/>
-                    <div style={{fontSize:10,color:"#888",marginTop:3}}>Used as SOP header title</div>
+                    <div style={{fontSize:10,color:"#888",marginTop:3}}>Appears in SOP header on preview and PDF</div>
                   </div>
                   <div>
                     <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>Description</label>
@@ -777,19 +787,28 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, setAct
                   </div>
                 </div>
 
-                {/* Assigned stations — ordered list, drag to reorder */}
-                <div style={{marginBottom:12}}>
-                  <div style={{fontWeight:600,fontSize:13,color:TEAL_DARK,marginBottom:6}}>
-                    Stations in this line ({lineStations.length})
-                    <span style={{fontSize:11,color:"#aaa",fontWeight:400,marginLeft:8}}>⠿ drag to reorder</span>
+                {/* ── Stations — full StationEditor inline ── */}
+                <div style={{borderTop:`2px solid ${TEAL_LIGHT}`,paddingTop:12}}>
+                  <div style={{fontWeight:700,fontSize:13,color:TEAL_DARK,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span>Stations ({lineStations.length})
+                      <span style={{fontSize:11,color:"#aaa",fontWeight:400,marginLeft:8}}>⠿ drag to reorder</span>
+                    </span>
+                    <button onClick={()=>addStationToLine(line)}
+                      style={{fontSize:12,padding:"3px 10px",background:TEAL,color:"white",border:"none",borderRadius:5,cursor:"pointer",fontWeight:600}}>
+                      + Add Station
+                    </button>
                   </div>
+
                   {lineStations.length===0 && (
-                    <div style={{color:"#aaa",fontSize:12,fontStyle:"italic",padding:"8px 0"}}>No stations assigned yet — add from the list below.</div>
+                    <div style={{color:"#aaa",fontSize:12,fontStyle:"italic",padding:"8px 0"}}>
+                      No stations yet — click + Add Station to create one.
+                    </div>
                   )}
-                  {lineStations.map((s,i) => (
+
+                  {lineStations.map((s, i) => (
                     <div key={s.id}
                       draggable
-                      onDragStart={e=>e.dataTransfer.setData("text/plain",String(i))}
+                      onDragStart={e=>{e.dataTransfer.setData("text/plain",String(i)); e.stopPropagation();}}
                       onDragOver={e=>e.preventDefault()}
                       onDrop={e=>{
                         e.preventDefault();
@@ -799,46 +818,54 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, setAct
                         const [removed]=ids.splice(from,1); ids.splice(i,0,removed);
                         updLine({...line,stationIds:ids});
                       }}
-                      style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",
-                              background:i%2===0?"#f9f9f9":"white",borderRadius:6,marginBottom:3,
-                              border:"1px solid #eee",cursor:"grab"}}>
-                      <span style={{color:"#bbb",fontSize:16}}>⠿</span>
-                      <span style={{background:TEAL,color:"white",borderRadius:3,padding:"1px 7px",fontSize:11,fontWeight:700,flexShrink:0}}>
-                        {String(i+1).padStart(2,"0")}
-                      </span>
-                      <span style={{fontFamily:"monospace",fontSize:11,color:TEAL_DARK,flexShrink:0}}>{s.sopId}</span>
-                      <span style={{fontSize:12,flex:1}}>{s.stationNo}{s.stationDesc?" — "+s.stationDesc:""}</span>
-                      <span style={{fontSize:11,color:"#888"}}>{s.tasks.length} task(s) · {fmtTime(sumTasks(s.tasks))}</span>
-                      <button onClick={()=>{ setTab("stations"); setActiveStation(s.id); }}
-                        style={{fontSize:11,padding:"2px 8px",background:"#e3f2fd",border:"1px solid #90caf9",borderRadius:3,cursor:"pointer",color:"#1565c0",flexShrink:0}}>
-                        Edit
-                      </button>
-                      <button onClick={()=>updLine({...line,stationIds:line.stationIds.filter(id=>id!==s.id)})}
-                        style={{fontSize:11,padding:"2px 7px",background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:3,cursor:"pointer",color:"#c62828",flexShrink:0}}>
-                        ✕
-                      </button>
+                      style={{marginBottom:6}}>
+                      {/* Drag handle row above StationEditor */}
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                        <span style={{color:"#bbb",fontSize:16,cursor:"grab"}}>⠿</span>
+                        <span style={{background:TEAL,color:"white",borderRadius:3,padding:"1px 7px",fontSize:11,fontWeight:700}}>
+                          {String(i+1).padStart(2,"0")}
+                        </span>
+                        <button onClick={()=>updLine({...line,stationIds:line.stationIds.filter(id=>id!==s.id)})}
+                          style={{marginLeft:"auto",fontSize:11,padding:"1px 7px",background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:3,cursor:"pointer",color:"#c62828"}}>
+                          Remove from line
+                        </button>
+                      </div>
+                      <StationEditor
+                        station={s}
+                        isActive={activeStationId===s.id}
+                        onSelect={()=>setActiveStationId(activeStationId===s.id?null:s.id)}
+                        onUpdate={(updated, extra)=>updStation(updated, extra)}
+                        onDelete={()=>{
+                          onStationsChange(prev=>prev.filter(st=>st.id!==s.id));
+                          updLine({...line,stationIds:line.stationIds.filter(id=>id!==s.id)});
+                        }}
+                        onPreview={()=>setPreview({...s,lineName:line.name})}
+                        allStations={stations}
+                      />
                     </div>
                   ))}
-                </div>
 
-                {/* Add unassigned stations */}
-                {(unassigned.length>0||stations.filter(s=>!line.stationIds.includes(s.id)&&assignedIds.has(s.id)).length>0) && (
-                  <div style={{borderTop:"1px solid #e0e0e0",paddingTop:10}}>
-                    <div style={{fontWeight:600,fontSize:12,color:"#555",marginBottom:6}}>Add stations to this line:</div>
-                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                      {stations.filter(s=>!line.stationIds.includes(s.id)).map(s=>(
-                        <button key={s.id}
-                          onClick={()=>updLine({...line,stationIds:[...line.stationIds,s.id]})}
-                          style={{padding:"4px 10px",fontSize:11,background:"#e8f5e9",border:"1px solid #a5d6a7",
-                                  borderRadius:4,cursor:"pointer",color:"#2e7d32"}}>
-                          + {s.stationNo||s.sopId||"Station"}{s.stationDesc?" — "+s.stationDesc:""}
-                          {assignedIds.has(s.id)&&!line.stationIds.includes(s.id)?
-                            <span style={{color:"#ff6f00",marginLeft:4,fontSize:10}}>(in another line)</span>:""}
-                        </button>
-                      ))}
+                  {/* Add existing unassigned stations */}
+                  {stations.filter(s=>!line.stationIds.includes(s.id)).length>0 && (
+                    <div style={{borderTop:"1px solid #e0e0e0",paddingTop:10,marginTop:8}}>
+                      <div style={{fontWeight:600,fontSize:12,color:"#555",marginBottom:6}}>
+                        Add an existing station to this line:
+                      </div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                        {stations.filter(s=>!line.stationIds.includes(s.id)).map(s=>(
+                          <button key={s.id}
+                            onClick={()=>updLine({...line,stationIds:[...line.stationIds,s.id]})}
+                            style={{padding:"4px 10px",fontSize:11,background:"#e8f5e9",border:"1px solid #a5d6a7",
+                                    borderRadius:4,cursor:"pointer",color:"#2e7d32"}}>
+                            + {s.stationNo||s.sopId||"Station"}{s.stationDesc?" — "+s.stationDesc:""}
+                            {assignedIds.has(s.id)&&!line.stationIds.includes(s.id)?
+                              <span style={{color:"#ff6f00",marginLeft:4,fontSize:10}}>(in another line)</span>:""}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -847,6 +874,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, setAct
     </div>
   );
 }
+
 
 // ─── Icon Picker ──────────────────────────────────────────────────────────────
 function IconPicker({ selected, onChange }) {
@@ -1818,29 +1846,13 @@ function ImportWizard({ currentStations, currentLines, onClose, onImport }) {
     });
 
     // 1. Import full stations
-    const importedStationIdMap = {}; // old id → new station
+    // When a whole station is selected, include ALL its tasks and steps unconditionally.
+    // When a station is NOT selected but some of its tasks/steps are, those come in as orphans below.
     selStations.forEach(sid => {
       const orig = fileData.stations.find(s=>s.id===sid);
       if(!orig) return;
-      // Determine which tasks to include: all tasks, but filter steps to selected ones
-      const station = freshStation({
-        ...orig,
-        tasks: orig.tasks.map(t => {
-          const tkey = sid+"::"+t.id;
-          // Include all steps that are either: task is selected (all steps), or individual step selected
-          const steps = selTasks.has(tkey)
-            ? t.steps  // all steps
-            : t.steps.filter(st => selSteps.has(sid+"::"+t.id+"::"+st.id));
-          return { ...t, steps };
-        }).filter(t => {
-          // Include task if: it's selected, or any of its steps are selected
-          const tkey = sid+"::"+t.id;
-          return selTasks.has(tkey) || t.steps.some(st => selSteps.has(sid+"::"+t.id+"::"+st.id));
-        })
-      });
-      // Reindex tasks
+      const station = freshStation({ ...orig });
       station.tasks = reindex(station.tasks, station.sopId);
-      importedStationIdMap[sid] = station;
       newStations.push(station);
     });
 
@@ -2245,7 +2257,7 @@ export default function App() {
           <span style={{background:TEAL,padding:"3px 10px",borderRadius:4,fontWeight:900,fontSize:16,letterSpacing:1}}>LVT</span>
           <span style={{fontWeight:700,fontSize:14}}>SOP Builder</span>
         </div>
-        {[{id:"lines",label:"🏗️ Lines"},{id:"stations",label:"📋 Stations & SOPs"},{id:"balance",label:"📊 Line Balance"}].map(t=>(
+        {[{id:"lines",label:"🏗️ Lines"},{id:"balance",label:"📊 Line Balance"}].map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} style={{background:tab===t.id?"rgba(255,255,255,0.18)":"transparent",border:"none",borderBottom:tab===t.id?"3px solid white":"3px solid transparent",color:"white",padding:"0 14px",cursor:"pointer",fontSize:13,fontWeight:tab===t.id?700:400,alignSelf:"stretch"}}>{t.label}</button>
         ))}
         <div style={{flex:1}}/>
@@ -2276,38 +2288,22 @@ export default function App() {
             stations={stations}
             onLinesChange={setLines}
             onStationsChange={setStations}
-            setActiveStation={id=>{setActive(id);}}
-            setTab={setTab}
+            updStation={updStation}
+            preview={preview}
+            setPreview={setPreview}
           />
         )}
-        {tab==="stations" && (<>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-            <div>
-              <h2 style={{margin:0,color:TEAL_DARK}}>Stations</h2>
-              <span style={{fontSize:12,color:"#888"}}>{stations.length} station(s) · {stations.reduce((n,s)=>n+s.tasks.length,0)} task(s) · {fmtTime(stations.reduce((s,st)=>s+sumTasks(st.tasks),0))} total</span>
-            </div>
-            <button onClick={addStation} style={{background:TEAL,color:"white",border:"none",borderRadius:8,padding:"10px 20px",cursor:"pointer",fontSize:14,fontWeight:700,boxShadow:"0 2px 6px rgba(0,137,123,0.3)"}}>+ New Station</button>
-          </div>
-          {stations.length===0 && (
-            <div style={{textAlign:"center",padding:70,color:"#bbb",background:"white",borderRadius:12,border:"2px dashed #e0e0e0"}}>
-              <div style={{fontSize:52}}>🏭</div>
-              <div style={{fontSize:16,marginTop:10,fontWeight:600}}>No stations yet</div>
-              <div style={{fontSize:13,marginTop:6}}>Click <strong style={{color:TEAL}}>+ New Station</strong> to get started, or <strong style={{color:TEAL}}>📂 Load File</strong> to restore a saved project.</div>
-            </div>
-          )}
-          {stations.map(s=>(
-            <StationEditor key={s.id} station={s}
-              isActive={active===s.id}
-              onSelect={()=>setActive(active===s.id?null:s.id)}
-              onUpdate={updStation}
-              onDelete={()=>delStation(s.id)}
-              onPreview={()=>setPreview({...s,lineName:stationLineName(s.id)})}
-              allStations={stations}
-            />
-          ))}
-        </>)}
+
         {tab==="balance" && (
           <div style={{background:"white",borderRadius:12,padding:22,boxShadow:"0 1px 5px rgba(0,0,0,0.07)"}}>
+            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:16}}>
+              <button onClick={()=>window.open("./planogram.html","_blank","noopener")}
+                style={{background:TEAL,color:"white",border:"none",borderRadius:7,padding:"8px 18px",
+                        cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",gap:8,
+                        boxShadow:"0 2px 6px rgba(0,137,123,0.3)"}}>
+                📦 Open Planogram Tool
+              </button>
+            </div>
             <LineBalance stations={stations}/>
           </div>
         )}
