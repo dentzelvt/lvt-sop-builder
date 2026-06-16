@@ -90,13 +90,15 @@ const lsLoad = () => {
     return { stations:(d.stations||[]).map(migrateStation), lines:d.lines||[] };
   } catch{ return null; }
 };
-const saveFile = (stations, lines=[], station=null, lineName=null) => {
+const saveFile = (stations, lines=[], station=null, lineName=null, explicitName=null) => {
   const date = new Date().toISOString().slice(0,10);
-  const name = station
-    ? [station.sopId, station.stationDesc].filter(Boolean).join("_").replace(/[^a-zA-Z0-9_\-]/g,"_") || "SOP_save"
-    : lineName
-      ? `${lineName.replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_")}_${date}`
-      : `SOP_save_${date}`;
+  const name = explicitName
+    ? explicitName
+    : station
+      ? [station.sopId, station.stationDesc].filter(Boolean).join("_").replace(/[^a-zA-Z0-9_\-]/g,"_") || "SOP_save"
+      : lineName
+        ? `${lineName.replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_")}_${date}`
+        : `SOP_save_${date}`;
   const a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob([JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines},null,2)],{type:"application/json"}));
   a.download=`${name}.json`; a.click();
@@ -1545,7 +1547,10 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
         <div style={{display:"flex",gap:6,flexShrink:0}}>
           <button onClick={e=>{e.stopPropagation();onPreview();}} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>👁 Preview</button>
           <button onClick={e=>{e.stopPropagation();exportPDF({...station,lineName:stationLineName(station.id)});}} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>📄 PDF</button>
-          <button onClick={e=>{e.stopPropagation();saveFile([station],station);}} title="Save this station to a file" style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>💾 Save</button>
+          <button onClick={e=>{e.stopPropagation();
+            const name=[station.sopId,station.stationDesc].filter(Boolean).join("_").replace(/[^a-zA-Z0-9_\-]/g,"_")||"SOP";
+            saveFile([station],[],null,null,name);
+          }} title="Save this SOP to a file" style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>💾 Save</button>
           <button onClick={e=>{e.stopPropagation();onDelete();}} style={{background:"rgba(200,0,0,0.12)",border:"1px solid rgba(200,0,0,0.25)",borderRadius:4,padding:"3px 8px",cursor:"pointer",color:"#c62828",fontSize:12}}>✕</button>
         </div>
       </div>
@@ -2199,6 +2204,105 @@ function ImportWizard({ currentStations, currentLines, onClose, onImport }) {
   );
 }
 
+// ─── Export Save Modal ────────────────────────────────────────────────────────
+function ExportSaveModal({ lines, stations, onClose }) {
+  const [mode, setMode] = useState("all"); // "all" | "line"
+  const [selLineId, setSelLineId] = useState(lines[0]?.id || "");
+  const date = new Date().toISOString().slice(0,10);
+
+  const lineFileName = (line) => {
+    const raw = line.name || "Line";
+    return raw.replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_") + `_${date}`;
+  };
+  const allFileName = () => {
+    if(lines.length === 0) return `SOP_save_${date}`;
+    if(lines.length === 1) return lineFileName(lines[0]);
+    return lines.map(l=>(l.name||"Line").replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_")).join("_") + `_${date}`;
+  };
+
+  const doExport = () => {
+    if(mode === "all") {
+      saveFile(stations, lines, null, null, allFileName());
+    } else {
+      const line = lines.find(l=>l.id===selLineId);
+      if(!line) return;
+      const lineStations = line.stationIds.map(id=>stations.find(s=>s.id===id)).filter(Boolean);
+      saveFile(lineStations, [line], null, null, lineFileName(line));
+    }
+    onClose();
+  };
+
+  const previewName = mode === "all"
+    ? allFileName()
+    : (lines.find(l=>l.id===selLineId) ? lineFileName(lines.find(l=>l.id===selLineId)) : "—");
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:"white",borderRadius:12,padding:28,maxWidth:460,width:"90%",boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}}>
+        <div style={{fontWeight:700,fontSize:16,color:TEAL_DARK,marginBottom:4}}>⬇️ Export Save File</div>
+        <div style={{fontSize:12,color:"#666",marginBottom:20,lineHeight:1.6}}>
+          Choose what to include in the exported file.
+        </div>
+
+        {/* Mode selector */}
+        <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
+          {/* All lines option */}
+          <label style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",borderRadius:8,border:`2px solid ${mode==="all"?TEAL:"#e0e0e0"}`,background:mode==="all"?TEAL_LIGHT:"#fafafa",cursor:"pointer"}}>
+            <input type="radio" name="exportMode" value="all" checked={mode==="all"} onChange={()=>setMode("all")} style={{marginTop:2,accentColor:TEAL}}/>
+            <div>
+              <div style={{fontWeight:600,fontSize:13}}>All Lines</div>
+              <div style={{fontSize:11,color:"#666",marginTop:2}}>
+                Export everything — {lines.length} line(s), {stations.length} station(s)
+              </div>
+            </div>
+          </label>
+
+          {/* Single line option */}
+          {lines.length > 0 && (
+            <label style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",borderRadius:8,border:`2px solid ${mode==="line"?TEAL:"#e0e0e0"}`,background:mode==="line"?TEAL_LIGHT:"#fafafa",cursor:"pointer"}}>
+              <input type="radio" name="exportMode" value="line" checked={mode==="line"} onChange={()=>setMode("line")} style={{marginTop:2,accentColor:TEAL}}/>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:600,fontSize:13}}>Single Line</div>
+                <div style={{fontSize:11,color:"#666",marginTop:2,marginBottom:6}}>
+                  Export only one line and its stations
+                </div>
+                {mode==="line" && (
+                  <select value={selLineId} onChange={e=>setSelLineId(e.target.value)}
+                    style={{width:"100%",padding:"5px 8px",border:`1px solid ${TEAL}`,borderRadius:5,fontSize:12,background:"white"}}>
+                    {lines.map(l=>{
+                      const count = l.stationIds.filter(id=>stations.find(s=>s.id===id)).length;
+                      return <option key={l.id} value={l.id}>🏗️ {l.name||"(unnamed)"} — {count} station(s)</option>;
+                    })}
+                  </select>
+                )}
+              </div>
+            </label>
+          )}
+        </div>
+
+        {/* Filename preview */}
+        <div style={{background:"#f5f5f5",borderRadius:6,padding:"8px 12px",marginBottom:20,display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:11,color:"#888"}}>Filename:</span>
+          <span style={{fontFamily:"monospace",fontSize:12,color:TEAL_DARK,fontWeight:600}}>
+            {previewName}.json
+          </span>
+        </div>
+
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={doExport}
+            style={{flex:1,background:TEAL,color:"white",border:"none",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:700}}>
+            ⬇️ Download
+          </button>
+          <button onClick={onClose}
+            style={{flex:1,background:"#f5f5f5",color:"#555",border:"1px solid #ddd",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13}}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Save Info Modal ──────────────────────────────────────────────────────────
 function SaveInfoModal({ onExport, onClose }) {
   return (
@@ -2260,8 +2364,9 @@ export default function App() {
   const [tab,      setTab]      = useState("lines");
   const [preview,  setPreview]  = useState(null);
   const [saveMsg,  setSaveMsg]  = useState("");
-  const [showSaveInfo, setShowSaveInfo] = useState(false);
-  const [showImport,   setShowImport]   = useState(false);
+  const [showSaveInfo,   setShowSaveInfo]   = useState(false);
+  const [showImport,     setShowImport]     = useState(false);
+  const [showExportSave, setShowExportSave] = useState(false);
   const loadRef = useRef();
 
   useEffect(()=>{ lsSave(stations, lines); },[stations, lines]);
@@ -2320,15 +2425,7 @@ export default function App() {
         <div style={{display:"flex",alignItems:"center",gap:5,padding:"8px 0"}}>
           {saveMsg&&<span style={{fontSize:11,color:"#a5d6a7",marginRight:4}}>{saveMsg}</span>}
           <button onClick={()=>{lsSave(stations,lines);setShowSaveInfo(true);}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>💾 Save</button>
-          <button onClick={()=>{
-  const lineName = lines.length===1
-    ? lines[0].name
-    : lines.length>1
-      ? lines.map(l=>l.name).filter(Boolean).join("_")
-      : null;
-  saveFile(stations,lines,stations.length===1?stations[0]:null,lineName);
-  flash("✓ File downloaded");
-}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>⬇️ Export Save</button>
+          <button onClick={()=>setShowExportSave(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>⬇️ Export Save</button>
           <button onClick={()=>setShowImport(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📥 Import</button>
           <button onClick={()=>loadRef.current.click()} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📂 Load File</button>
           <input ref={loadRef} type="file" accept=".json" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;loadFile(f,loaded=>{setStations(loaded.stations);setLines(loaded.lines||[]);setActive(null);flash("✓ Loaded");});e.target.value="";}}/>
@@ -2365,7 +2462,8 @@ export default function App() {
         )}
       </div>
       {preview&&<SOPPreview station={preview} onClose={()=>setPreview(null)}/>}
-      {showSaveInfo&&<SaveInfoModal onExport={()=>saveFile(stations)} onClose={()=>setShowSaveInfo(false)}/>}
+      {showSaveInfo&&<SaveInfoModal onExport={()=>setShowExportSave(true)} onClose={()=>setShowSaveInfo(false)}/>}
+      {showExportSave&&<ExportSaveModal lines={lines} stations={stations} onClose={()=>{setShowExportSave(false);flash("✓ File downloaded");}}/>}
       {showImport&&<ImportWizard
         currentStations={stations}
         currentLines={lines}
