@@ -823,6 +823,13 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                   style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isLineOpen?"white":"#333"}}>
                   + Station
                 </button>
+                <button onClick={()=>{
+                  const ls=lineStations;
+                  const name=(line.name||"Line").replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_");
+                  saveFile(ls,[line],null,null,`${name}_${new Date().toISOString().slice(0,10)}`);
+                }} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isLineOpen?"white":"#333"}}>
+                  💾 Save
+                </button>
                 <button onClick={()=>lineStations.forEach((s,i)=>setTimeout(()=>exportPDF({...s,lineName:line.name}),i*500))}
                   style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isLineOpen?"white":"#333"}}>
                   📄 All PDFs
@@ -2449,87 +2456,75 @@ function ImportWizard({ currentStations, currentLines, onClose, onImport }) {
 // ─── Export Save Modal ────────────────────────────────────────────────────────
 function ExportSaveModal({ lines, stations, onClose }) {
   const [mode, setMode] = useState("all"); // "all" | "line"
-  // Always keep selLineId pointing at a valid line — derived from lines array, not stale state
-  const validIds  = lines.map(l=>l.id);
   const [selLineId, setSelLineId] = useState(lines[0]?.id || "");
-  // If selLineId is stale (no longer in lines), fall back to first line
-  const effectiveLineId = validIds.includes(selLineId) ? selLineId : (validIds[0] || "");
   const date = new Date().toISOString().slice(0,10);
 
+  // Always resolve to a valid line id
+  const validIds = lines.map(l=>l.id);
+  const effectiveId = validIds.includes(selLineId) ? selLineId : (validIds[0] || "");
+  const selectedLine = lines.find(l=>l.id===effectiveId);
+
   const lineFileName = (line) => {
-    const raw = (line.name || "Line").replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_");
-    return `${raw || "Line"}_${date}`;
+    const raw = (line.name||"Line").replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_");
+    return `${raw||"Line"}_${date}`;
   };
-  const allFileName = () => `All_Lines_${date}`;
+  const previewName = mode==="all" ? `All_Lines_${date}` : (selectedLine ? lineFileName(selectedLine) : "—");
 
   const doExport = () => {
-    if(mode === "all") {
-      saveFile(stations, lines, null, null, allFileName());
-      onClose();
+    if(mode==="all") {
+      saveFile(stations, lines, null, null, `All_Lines_${date}`);
     } else {
-      const line = lines.find(l=>l.id===effectiveLineId);
-      if(!line) { alert("Please select a line to export."); return; }
-      const lineStations = line.stationIds.map(id=>stations.find(s=>s.id===id)).filter(Boolean);
-      saveFile(lineStations, [line], null, null, lineFileName(line));
-      onClose();
+      if(!selectedLine){ alert("Please select a line."); return; }
+      const lineStations = selectedLine.stationIds.map(id=>stations.find(s=>s.id===id)).filter(Boolean);
+      saveFile(lineStations, [selectedLine], null, null, lineFileName(selectedLine));
     }
+    onClose();
   };
-
-  const selectedLine = lines.find(l=>l.id===effectiveLineId);
-  const previewName = mode === "all"
-    ? allFileName()
-    : (selectedLine ? lineFileName(selectedLine) : "—");
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{background:"white",borderRadius:12,padding:28,maxWidth:460,width:"90%",boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}}>
         <div style={{fontWeight:700,fontSize:16,color:TEAL_DARK,marginBottom:4}}>⬇️ Export Save File</div>
-        <div style={{fontSize:12,color:"#666",marginBottom:20,lineHeight:1.6}}>
-          Choose what to include in the exported file.
-        </div>
+        <div style={{fontSize:12,color:"#666",marginBottom:20}}>Choose what to include in the exported file.</div>
 
-        {/* Mode selector */}
-        <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
-          {/* All lines option */}
-          <label style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",borderRadius:8,border:`2px solid ${mode==="all"?TEAL:"#e0e0e0"}`,background:mode==="all"?TEAL_LIGHT:"#fafafa",cursor:"pointer"}}>
-            <input type="radio" name="exportMode" value="all" checked={mode==="all"} onChange={()=>setMode("all")} style={{marginTop:2,accentColor:TEAL}}/>
-            <div>
-              <div style={{fontWeight:600,fontSize:13}}>All Lines</div>
-              <div style={{fontSize:11,color:"#666",marginTop:2}}>
-                Export everything — {lines.length} line(s), {stations.length} station(s)
-              </div>
+        {/* All Lines option */}
+        <label style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:8,
+            border:`2px solid ${mode==="all"?TEAL:"#e0e0e0"}`,background:mode==="all"?TEAL_LIGHT:"#fafafa",
+            cursor:"pointer",marginBottom:10}}>
+          <input type="radio" name="em" checked={mode==="all"} onChange={()=>setMode("all")} style={{accentColor:TEAL,width:16,height:16}}/>
+          <div>
+            <div style={{fontWeight:600,fontSize:13}}>All Lines</div>
+            <div style={{fontSize:11,color:"#666"}}>{lines.length} line(s) · {stations.length} station(s)</div>
+          </div>
+        </label>
+
+        {/* Single Line option — always shows dropdown */}
+        {lines.length > 0 && (
+          <label style={{display:"flex",alignItems:"flex-start",gap:10,padding:"12px 14px",borderRadius:8,
+              border:`2px solid ${mode==="line"?TEAL:"#e0e0e0"}`,background:mode==="line"?TEAL_LIGHT:"#fafafa",
+              cursor:"pointer",marginBottom:20}}>
+            <input type="radio" name="em" checked={mode==="line"} onChange={()=>setMode("line")} style={{accentColor:TEAL,width:16,height:16,marginTop:2}}/>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:600,fontSize:13,marginBottom:8}}>Single Line</div>
+              <select
+                value={effectiveId}
+                onChange={e=>{ setSelLineId(e.target.value); setMode("line"); }}
+                onClick={e=>{ e.stopPropagation(); setMode("line"); }}
+                style={{width:"100%",padding:"6px 8px",border:`1px solid ${mode==="line"?TEAL:"#ccc"}`,
+                        borderRadius:5,fontSize:12,background:"white",cursor:"pointer"}}>
+                {lines.map(l=>{
+                  const count=l.stationIds.filter(id=>stations.find(s=>s.id===id)).length;
+                  return <option key={l.id} value={l.id}>🏗️ {l.name||"(unnamed)"} — {count} station(s)</option>;
+                })}
+              </select>
             </div>
           </label>
-
-          {/* Single line option */}
-          {lines.length > 0 && (
-            <label style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",borderRadius:8,border:`2px solid ${mode==="line"?TEAL:"#e0e0e0"}`,background:mode==="line"?TEAL_LIGHT:"#fafafa",cursor:"pointer"}}>
-              <input type="radio" name="exportMode" value="line" checked={mode==="line"} onChange={()=>setMode("line")} style={{marginTop:2,accentColor:TEAL}}/>
-              <div style={{flex:1}}>
-                <div style={{fontWeight:600,fontSize:13}}>Single Line</div>
-                <div style={{fontSize:11,color:"#666",marginTop:2,marginBottom:6}}>
-                  Export only one line and its stations
-                </div>
-                {mode==="line" && (
-                  <select value={effectiveLineId} onChange={e=>setSelLineId(e.target.value)}
-                    style={{width:"100%",padding:"5px 8px",border:`1px solid ${TEAL}`,borderRadius:5,fontSize:12,background:"white"}}>
-                    {lines.map(l=>{
-                      const count = l.stationIds.filter(id=>stations.find(s=>s.id===id)).length;
-                      return <option key={l.id} value={l.id}>🏗️ {l.name||"(unnamed)"} — {count} station(s)</option>;
-                    })}
-                  </select>
-                )}
-              </div>
-            </label>
-          )}
-        </div>
+        )}
 
         {/* Filename preview */}
         <div style={{background:"#f5f5f5",borderRadius:6,padding:"8px 12px",marginBottom:20,display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontSize:11,color:"#888"}}>Filename:</span>
-          <span style={{fontFamily:"monospace",fontSize:12,color:TEAL_DARK,fontWeight:600}}>
-            {previewName}.json
-          </span>
+          <span style={{fontSize:11,color:"#888",flexShrink:0}}>Filename:</span>
+          <span style={{fontFamily:"monospace",fontSize:12,color:TEAL_DARK,fontWeight:600,wordBreak:"break-all"}}>{previewName}.json</span>
         </div>
 
         <div style={{display:"flex",gap:10}}>
