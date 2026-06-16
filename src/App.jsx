@@ -1664,48 +1664,181 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
 }
 
 // ─── Line Balance ─────────────────────────────────────────────────────────────
-function LineBalance({ stations }) {
-  const data=stations.map(s=>({id:s.id,name:s.stationNo||s.sopId||"Station",sopId:s.sopId,total:sumTasks(s.tasks),tasks:s.tasks.length,steps:s.tasks.reduce((n,t)=>n+t.steps.length,0)}));
-  const max=Math.max(...data.map(d=>d.total),0.01);
-  const avg=data.length?data.reduce((s,d)=>s+d.total,0)/data.length:0;
-  if(!stations.length) return (<div style={{textAlign:"center",padding:80,color:"#bbb"}}><div style={{fontSize:48}}>📊</div><div style={{marginTop:10,fontSize:15}}>Add stations with step cycle times to see the line balance.</div></div>);
+function LineBalance({ stations, lines }) {
+  const [scope,       setScope]       = useState("all");   // "all" | "line" | "station"
+  const [selLineId,   setSelLineId]   = useState(lines[0]?.id || "");
+  const [selStationId,setSelStationId]= useState(stations[0]?.id || "");
+
+  // ── Determine which stations to analyse ────────────────────────────────────
+  const scopedStations = (() => {
+    if(scope === "line") {
+      const line = lines.find(l=>l.id===selLineId);
+      if(!line) return [];
+      return line.stationIds.map(id=>stations.find(s=>s.id===id)).filter(Boolean);
+    }
+    if(scope === "station") {
+      const s = stations.find(s=>s.id===selStationId);
+      return s ? [s] : [];
+    }
+    return stations;
+  })();
+
+  // ── For single-station scope, show task-level breakdown ────────────────────
+  const isSingleStation = scope === "station" && scopedStations.length === 1;
+  const singleStation   = isSingleStation ? scopedStations[0] : null;
+
+  const data = isSingleStation
+    ? singleStation.tasks.map(t=>({
+        id:t.id, name:`Task ${t.taskNo}: ${t.description||"(untitled)"}`,
+        sopId:t.taskId, total:sumSteps(t.steps),
+        tasks:1, steps:t.steps.length,
+      }))
+    : scopedStations.map(s=>({
+        id:s.id, name:s.stationNo||s.sopId||"Station",
+        sopId:s.sopId, total:sumTasks(s.tasks),
+        tasks:s.tasks.length, steps:s.tasks.reduce((n,t)=>n+t.steps.length,0),
+      }));
+
+  const max = Math.max(...data.map(d=>d.total), 0.01);
+  const avg = data.length ? data.reduce((s,d)=>s+d.total,0)/data.length : 0;
+  const scopeLabel = scope==="line"
+    ? (lines.find(l=>l.id===selLineId)?.name || "Line")
+    : scope==="station"
+      ? (stations.find(s=>s.id===selStationId)?.stationNo || "Station")
+      : "All Stations";
+
+  if(!stations.length) return (
+    <div style={{textAlign:"center",padding:80,color:"#bbb"}}>
+      <div style={{fontSize:48}}>📊</div>
+      <div style={{marginTop:10,fontSize:15}}>Add stations with step cycle times to see the line balance.</div>
+    </div>
+  );
+
   return (
     <div>
+      {/* ── Scope selector ── */}
+      <div style={{background:"#f9f9f9",border:"1px solid #e0e0e0",borderRadius:8,padding:"12px 16px",marginBottom:16,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+        <span style={{fontWeight:600,fontSize:12,color:"#555",flexShrink:0}}>Analyse:</span>
+
+        {/* All */}
+        <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12}}>
+          <input type="radio" name="lbscope" value="all" checked={scope==="all"} onChange={()=>setScope("all")} style={{accentColor:TEAL}}/>
+          All Stations
+        </label>
+
+        {/* By Line */}
+        {lines.length > 0 && (
+          <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12}}>
+            <input type="radio" name="lbscope" value="line" checked={scope==="line"} onChange={()=>setScope("line")} style={{accentColor:TEAL}}/>
+            Line:
+            <select value={lines.find(l=>l.id===selLineId)?selLineId:(lines[0]?.id||"")}
+              onChange={e=>{setSelLineId(e.target.value);setScope("line");}}
+              style={{padding:"2px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12,background:"white"}}>
+              {lines.map(l=>{
+                const cnt = l.stationIds.filter(id=>stations.find(s=>s.id===id)).length;
+                return <option key={l.id} value={l.id}>{l.name||"(unnamed)"} ({cnt} stations)</option>;
+              })}
+            </select>
+          </label>
+        )}
+
+        {/* By Station */}
+        {stations.length > 0 && (
+          <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12}}>
+            <input type="radio" name="lbscope" value="station" checked={scope==="station"} onChange={()=>setScope("station")} style={{accentColor:TEAL}}/>
+            Station:
+            <select value={stations.find(s=>s.id===selStationId)?selStationId:(stations[0]?.id||"")}
+              onChange={e=>{setSelStationId(e.target.value);setScope("station");}}
+              style={{padding:"2px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12,background:"white"}}>
+              {stations.map(s=>(
+                <option key={s.id} value={s.id}>{s.stationNo||s.sopId||"Station"}{s.stationDesc?" — "+s.stationDesc:""}</option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+
+      {/* ── Header ── */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-        <div><h3 style={{margin:0,color:TEAL_DARK}}>Line Balance Analysis</h3><span style={{fontSize:12,color:"#888"}}>Average cycle time: {fmtTime(avg)}</span></div>
-        <button onClick={()=>exportCSV(stations)} style={{background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:6,padding:"6px 14px",cursor:"pointer",fontSize:12}}>⬇️ Export CSV</button>
+        <div>
+          <h3 style={{margin:0,color:TEAL_DARK}}>
+            Line Balance — {scopeLabel}
+            {isSingleStation && <span style={{fontSize:12,fontWeight:400,color:"#888",marginLeft:8}}>(task breakdown)</span>}
+          </h3>
+          <span style={{fontSize:12,color:"#888"}}>
+            Average cycle time: {fmtTime(avg)}
+            {data.length > 0 && <span style={{marginLeft:8}}>· {data.length} {isSingleStation?"task(s)":"station(s)"}</span>}
+          </span>
+        </div>
+        <button onClick={()=>exportCSV(scopedStations)}
+          style={{background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:6,padding:"6px 14px",cursor:"pointer",fontSize:12}}>
+          ⬇️ Export CSV
+        </button>
       </div>
-      <div style={{display:"flex",alignItems:"flex-end",gap:6,padding:"16px 8px 8px",background:"#f9fbe7",borderRadius:8,overflowX:"auto",marginBottom:16,minHeight:200}}>
-        {data.map(d=>{
-          const pct=(d.total/max)*100,tpct=(avg/max)*100,hot=d.total>avg*1.1;
-          return (<div key={d.id} style={{flex:"0 0 auto",width:70,display:"flex",flexDirection:"column",alignItems:"center"}}>
-            <span style={{fontSize:10,fontWeight:700,color:hot?"#c62828":"#2e7d32",marginBottom:3}}>{fmtTime(d.total)}</span>
-            <div style={{width:52,height:140,background:"#e8e8e8",borderRadius:"4px 4px 0 0",position:"relative",display:"flex",alignItems:"flex-end",overflow:"hidden"}}>
-              <div style={{width:"100%",height:`${pct}%`,background:hot?"#e53935":TEAL,borderRadius:"4px 4px 0 0",transition:"height 0.4s"}}/>
-              <div style={{position:"absolute",bottom:`${tpct}%`,left:0,right:0,height:2,background:"#ff6f00"}}/>
-            </div>
-            <span style={{fontSize:9,textAlign:"center",marginTop:3,color:"#555",maxWidth:68,wordBreak:"break-all"}}>{d.name}</span>
-          </div>);
-        })}
-      </div>
-      <div style={{fontSize:11,color:"#888",marginBottom:12}}><span style={{color:"#ff6f00",fontWeight:600}}>— Orange line</span> = average &nbsp;|&nbsp;<span style={{color:"#e53935",fontWeight:600}}>■ Red</span> = &gt;10% over average</div>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-        <thead><tr style={{background:TEAL,color:"white"}}>{["SOP ID","Station","Tasks","Steps","Cycle Time","vs Avg"].map(h=><th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600}}>{h}</th>)}</tr></thead>
-        <tbody>{data.map((d,i)=>{const diff=d.total-avg;return(<tr key={d.id} style={{background:i%2===0?"#f5f5f5":"white",borderBottom:"1px solid #e0e0e0"}}>
-          <td style={{padding:"6px 10px",fontFamily:"monospace",color:TEAL_DARK,fontWeight:600}}>{d.sopId||"—"}</td>
-          <td style={{padding:"6px 10px"}}>{d.name}</td>
-          <td style={{padding:"6px 10px",textAlign:"center"}}>{d.tasks}</td>
-          <td style={{padding:"6px 10px",textAlign:"center"}}>{d.steps}</td>
-          <td style={{padding:"6px 10px",fontWeight:600}}>{fmtTime(d.total)}</td>
-          <td style={{padding:"6px 10px",fontWeight:600,color:diff>0?"#c62828":diff<0?"#2e7d32":"#888"}}>{diff>0?"+":""}{fmtTime(Math.abs(diff))} {diff>0?"▲":diff<0?"▼":"—"}</td>
-        </tr>);})}
-        </tbody>
-        <tfoot><tr style={{background:TEAL_LIGHT,fontWeight:700}}>
-          <td colSpan={4} style={{padding:"7px 10px"}}>Total / Average</td>
-          <td style={{padding:"7px 10px"}}>{fmtTime(data.reduce((s,d)=>s+d.total,0))}</td>
-          <td style={{padding:"7px 10px",color:"#555"}}>Avg: {fmtTime(avg)}</td>
-        </tr></tfoot>
-      </table>
+
+      {data.length === 0 ? (
+        <div style={{textAlign:"center",padding:40,color:"#bbb",background:"#f9f9f9",borderRadius:8}}>
+          <div style={{fontSize:13}}>No data for this selection.</div>
+        </div>
+      ) : (<>
+        {/* ── Bar chart ── */}
+        <div style={{display:"flex",alignItems:"flex-end",gap:6,padding:"16px 8px 8px",background:"#f9fbe7",borderRadius:8,overflowX:"auto",marginBottom:16,minHeight:200}}>
+          {data.map(d=>{
+            const pct=(d.total/max)*100, tpct=(avg/max)*100, hot=d.total>avg*1.1;
+            const label = isSingleStation
+              ? `Task ${d.sopId?.split("-").pop()||""}`
+              : d.name;
+            return (
+              <div key={d.id} style={{flex:"0 0 auto",width:isSingleStation?90:70,display:"flex",flexDirection:"column",alignItems:"center"}}>
+                <span style={{fontSize:10,fontWeight:700,color:hot?"#c62828":"#2e7d32",marginBottom:3}}>{fmtTime(d.total)}</span>
+                <div style={{width:isSingleStation?70:52,height:140,background:"#e8e8e8",borderRadius:"4px 4px 0 0",position:"relative",display:"flex",alignItems:"flex-end",overflow:"hidden"}}>
+                  <div style={{width:"100%",height:`${pct}%`,background:hot?"#e53935":TEAL,borderRadius:"4px 4px 0 0",transition:"height 0.4s"}}/>
+                  <div style={{position:"absolute",bottom:`${tpct}%`,left:0,right:0,height:2,background:"#ff6f00"}}/>
+                </div>
+                <span style={{fontSize:9,textAlign:"center",marginTop:3,color:"#555",maxWidth:isSingleStation?88:68,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}} title={d.name}>{label}</span>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{fontSize:11,color:"#888",marginBottom:12}}>
+          <span style={{color:"#ff6f00",fontWeight:600}}>— Orange line</span> = average &nbsp;|&nbsp;
+          <span style={{color:"#e53935",fontWeight:600}}>■ Red</span> = &gt;10% over average
+        </div>
+
+        {/* ── Table ── */}
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead>
+            <tr style={{background:TEAL,color:"white"}}>
+              {[isSingleStation?"Task ID":"SOP ID", isSingleStation?"Task":"Station","Tasks/Steps","Steps","Cycle Time","vs Avg"]
+                .map(h=><th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600}}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((d,i)=>{
+              const diff=d.total-avg;
+              return (
+                <tr key={d.id} style={{background:i%2===0?"#f5f5f5":"white",borderBottom:"1px solid #e0e0e0"}}>
+                  <td style={{padding:"6px 10px",fontFamily:"monospace",color:TEAL_DARK,fontWeight:600}}>{d.sopId||"—"}</td>
+                  <td style={{padding:"6px 10px",maxWidth:220}}>{d.name}</td>
+                  <td style={{padding:"6px 10px",textAlign:"center"}}>{d.tasks}</td>
+                  <td style={{padding:"6px 10px",textAlign:"center"}}>{d.steps}</td>
+                  <td style={{padding:"6px 10px",fontWeight:600}}>{fmtTime(d.total)}</td>
+                  <td style={{padding:"6px 10px",fontWeight:600,color:diff>0?"#c62828":diff<0?"#2e7d32":"#888"}}>
+                    {diff>0?"+":""}{fmtTime(Math.abs(diff))} {diff>0?"▲":diff<0?"▼":"—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr style={{background:TEAL_LIGHT,fontWeight:700}}>
+              <td colSpan={4} style={{padding:"7px 10px"}}>Total / Average</td>
+              <td style={{padding:"7px 10px"}}>{fmtTime(data.reduce((s,d)=>s+d.total,0))}</td>
+              <td style={{padding:"7px 10px",color:"#555"}}>Avg: {fmtTime(avg)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </>)}
     </div>
   );
 }
@@ -2207,34 +2340,40 @@ function ImportWizard({ currentStations, currentLines, onClose, onImport }) {
 // ─── Export Save Modal ────────────────────────────────────────────────────────
 function ExportSaveModal({ lines, stations, onClose }) {
   const [mode, setMode] = useState("all"); // "all" | "line"
+  // Always keep selLineId pointing at a valid line — derived from lines array, not stale state
+  const validIds  = lines.map(l=>l.id);
   const [selLineId, setSelLineId] = useState(lines[0]?.id || "");
+  // If selLineId is stale (no longer in lines), fall back to first line
+  const effectiveLineId = validIds.includes(selLineId) ? selLineId : (validIds[0] || "");
   const date = new Date().toISOString().slice(0,10);
 
   const lineFileName = (line) => {
-    const raw = line.name || "Line";
-    return raw.replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_") + `_${date}`;
+    const raw = (line.name || "Line").replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_");
+    return `${raw || "Line"}_${date}`;
   };
   const allFileName = () => {
     if(lines.length === 0) return `SOP_save_${date}`;
     if(lines.length === 1) return lineFileName(lines[0]);
-    return lines.map(l=>(l.name||"Line").replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_")).join("_") + `_${date}`;
+    return lines.map(l=>(l.name||"Line").replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_")).filter(Boolean).join("_") + `_${date}`;
   };
 
   const doExport = () => {
     if(mode === "all") {
       saveFile(stations, lines, null, null, allFileName());
+      onClose();
     } else {
-      const line = lines.find(l=>l.id===selLineId);
-      if(!line) return;
+      const line = lines.find(l=>l.id===effectiveLineId);
+      if(!line) { alert("Please select a line to export."); return; }
       const lineStations = line.stationIds.map(id=>stations.find(s=>s.id===id)).filter(Boolean);
       saveFile(lineStations, [line], null, null, lineFileName(line));
+      onClose();
     }
-    onClose();
   };
 
+  const selectedLine = lines.find(l=>l.id===effectiveLineId);
   const previewName = mode === "all"
     ? allFileName()
-    : (lines.find(l=>l.id===selLineId) ? lineFileName(lines.find(l=>l.id===selLineId)) : "—");
+    : (selectedLine ? lineFileName(selectedLine) : "—");
 
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -2267,7 +2406,7 @@ function ExportSaveModal({ lines, stations, onClose }) {
                   Export only one line and its stations
                 </div>
                 {mode==="line" && (
-                  <select value={selLineId} onChange={e=>setSelLineId(e.target.value)}
+                  <select value={effectiveLineId} onChange={e=>setSelLineId(e.target.value)}
                     style={{width:"100%",padding:"5px 8px",border:`1px solid ${TEAL}`,borderRadius:5,fontSize:12,background:"white"}}>
                     {lines.map(l=>{
                       const count = l.stationIds.filter(id=>stations.find(s=>s.id===id)).length;
@@ -2450,14 +2589,17 @@ export default function App() {
         {tab==="balance" && (
           <div style={{background:"white",borderRadius:12,padding:22,boxShadow:"0 1px 5px rgba(0,0,0,0.07)"}}>
             <div style={{display:"flex",justifyContent:"flex-end",marginBottom:16}}>
-              <button onClick={()=>window.open("./planogram.html","_blank","noopener")}
+              <button onClick={()=>{
+                const base = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, "/");
+                window.open(base + "planogram.html", "_blank", "noopener");
+              }}
                 style={{background:TEAL,color:"white",border:"none",borderRadius:7,padding:"8px 18px",
                         cursor:"pointer",fontSize:13,fontWeight:700,display:"flex",alignItems:"center",gap:8,
                         boxShadow:"0 2px 6px rgba(0,137,123,0.3)"}}>
                 📦 Open Planogram Tool
               </button>
             </div>
-            <LineBalance stations={stations}/>
+            <LineBalance stations={stations} lines={lines}/>
           </div>
         )}
       </div>
