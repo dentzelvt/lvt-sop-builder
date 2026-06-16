@@ -1154,8 +1154,8 @@ function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStat
             </div>
             <div>
               <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>General Notes</label>
-              <input value={task.generalNotes} onChange={e=>u("generalNotes",e.target.value)} placeholder="Optional task-level notes"
-                style={{width:"100%",padding:"5px 7px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}/>
+              <AutoTextarea value={task.generalNotes||""} onChange={e=>u("generalNotes",e.target.value)}
+                placeholder="Optional task-level notes" minRows={1}/>
             </div>
           </div>
           <div style={{marginBottom:8,display:"flex",gap:8,alignItems:"flex-start",flexWrap:"wrap"}}>
@@ -1725,9 +1725,11 @@ function ImportWizard({ currentStations, currentLines, onClose, onImport }) {
   const [selSteps,    setSelSteps]    = useState(new Set());   // "stationId::taskId::stepId"
 
   // Destination choices per imported task (when importing tasks without their station)
-  const [taskDest,    setTaskDest]    = useState({});  // taskKey → {stationId}
+  const [taskDest,       setTaskDest]       = useState({});  // taskKey → {stationId}
   // Destination choices per imported step
-  const [stepDest,    setStepDest]    = useState({});  // stepKey → {stationId, taskId:"new"|id, newTaskDesc}
+  const [stepDest,       setStepDest]       = useState({});  // stepKey → {stationId, taskId:"new"|id, newTaskDesc}
+  // Line assignment for each imported station
+  const [stationLineDest, setStationLineDest] = useState({});  // stationId → lineId | "new" | "none"
 
   const fileRef = useRef();
 
@@ -1824,7 +1826,7 @@ function ImportWizard({ currentStations, currentLines, onClose, onImport }) {
     return stp ? { key:k, sid, tid, step:stp, taskDesc:t?.description||"Task", stationName:st?.stationNo||"Station" } : null;
   }).filter(Boolean) : [];
 
-  const needsAssignment = orphanTasks.length > 0 || orphanSteps.length > 0;
+  const needsAssignment = selStations.size > 0 || orphanTasks.length > 0 || orphanSteps.length > 0;
 
   // ── Execute import ────────────────────────────────────────────────────────
   const doImport = () => {
@@ -1845,15 +1847,33 @@ function ImportWizard({ currentStations, currentLines, onClose, onImport }) {
       steps: t.steps.map(st => ({...st, id:Date.now()+Math.random()}))
     });
 
-    // 1. Import full stations
-    // When a whole station is selected, include ALL its tasks and steps unconditionally.
-    // When a station is NOT selected but some of its tasks/steps are, those come in as orphans below.
+    // 1. Import full stations and assign to lines
+    const newStationIdMap = {}; // orig id → new station id
     selStations.forEach(sid => {
       const orig = fileData.stations.find(s=>s.id===sid);
       if(!orig) return;
       const station = freshStation({ ...orig });
       station.tasks = reindex(station.tasks, station.sopId);
       newStations.push(station);
+      newStationIdMap[sid] = station.id;
+
+      // Assign to line
+      const dest = stationLineDest[sid];
+      if(dest && dest !== "none") {
+        if(dest === "new") {
+          // Create a new line named after the station
+          const newLine = mkLine();
+          newLine.name = orig.stationNo || orig.sopId || "Imported Line";
+          newLine.stationIds = [station.id];
+          newLines.push(newLine);
+        } else {
+          // Add to existing line
+          newLines = newLines.map(l => l.id === dest
+            ? { ...l, stationIds: [...l.stationIds, station.id] }
+            : l
+          );
+        }
+      }
     });
 
     // 2. Import orphan tasks → assign to destination station
@@ -2025,8 +2045,44 @@ function ImportWizard({ currentStations, currentLines, onClose, onImport }) {
           {step===3 && (
             <div>
               <div style={{fontSize:13,color:"#555",marginBottom:14}}>
-                Some selected items need a destination in your current project.
+                Assign imported items to lines and stations in your current project.
               </div>
+
+              {/* ── Station → Line assignment ── */}
+              {selStations.size > 0 && (
+                <div style={{marginBottom:20}}>
+                  <div style={{fontWeight:700,fontSize:13,color:TEAL_DARK,marginBottom:8}}>
+                    🏭 Stations — assign each to a line:
+                  </div>
+                  {[...selStations].map(sid => {
+                    const s = fileData.stations.find(st=>st.id===sid);
+                    if(!s) return null;
+                    const dest = stationLineDest[sid] || "none";
+                    return (
+                      <div key={sid} style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"center",
+                          marginBottom:8,padding:"8px 12px",background:TEAL_LIGHT,borderRadius:6,border:`1px solid #80cbc4`}}>
+                        <div>
+                          <div style={{fontSize:12,fontWeight:700,color:TEAL_DARK}}>{s.stationNo||s.sopId||"Station"}</div>
+                          <div style={{fontSize:11,color:"#555"}}>{s.stationDesc} {s.sopId && <span style={{fontFamily:"monospace",color:"#888"}}>{s.sopId}</span>}</div>
+                          <div style={{fontSize:11,color:"#888",marginTop:2}}>{s.tasks.length} task(s)</div>
+                        </div>
+                        <div>
+                          <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>Add to line</label>
+                          <select value={dest}
+                            onChange={e=>setStationLineDest(d=>({...d,[sid]:e.target.value}))}
+                            style={{width:"100%",padding:"5px 7px",border:`1px solid ${TEAL}`,borderRadius:4,fontSize:12,background:"white"}}>
+                            <option value="none">— No line (unassigned) —</option>
+                            <option value="new">➕ Create new line for this station</option>
+                            {currentLines.map(l=>(
+                              <option key={l.id} value={l.id}>🏗️ {l.name||"(unnamed line)"}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Orphan tasks */}
               {orphanTasks.length>0 && (
