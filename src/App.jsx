@@ -843,6 +843,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                         }}
                         onPreview={()=>setPreview({...s,lineName:line.name})}
                         allStations={stations}
+                        lineName={line.name}
                       />
                     </div>
                   ))}
@@ -1494,7 +1495,7 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
 }
 
 // ─── Station Editor ───────────────────────────────────────────────────────────
-function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPreview, allStations }) {
+function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPreview, allStations, lineName="" }) {
   const u=(f,v)=>{
     const upd={...station,[f]:v};
     if(["stationNo","asmVersion","sopRev"].includes(f)){
@@ -1546,7 +1547,7 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
         </div>
         <div style={{display:"flex",gap:6,flexShrink:0}}>
           <button onClick={e=>{e.stopPropagation();onPreview();}} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>👁 Preview</button>
-          <button onClick={e=>{e.stopPropagation();exportPDF({...station,lineName:stationLineName(station.id)});}} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>📄 PDF</button>
+          <button onClick={e=>{e.stopPropagation();exportPDF({...station,lineName});}} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>📄 PDF</button>
           <button onClick={e=>{e.stopPropagation();
             const name=[station.sopId,station.stationDesc].filter(Boolean).join("_").replace(/[^a-zA-Z0-9_\-]/g,"_")||"SOP";
             saveFile([station],[],null,null,name);
@@ -2351,11 +2352,7 @@ function ExportSaveModal({ lines, stations, onClose }) {
     const raw = (line.name || "Line").replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_");
     return `${raw || "Line"}_${date}`;
   };
-  const allFileName = () => {
-    if(lines.length === 0) return `SOP_save_${date}`;
-    if(lines.length === 1) return lineFileName(lines[0]);
-    return lines.map(l=>(l.name||"Line").replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_")).filter(Boolean).join("_") + `_${date}`;
-  };
+  const allFileName = () => `All_Lines_${date}`;
 
   const doExport = () => {
     if(mode === "all") {
