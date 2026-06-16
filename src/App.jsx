@@ -29,6 +29,23 @@ const sumTasks  = (tasks) => tasks.reduce((s,t)  => s+sumSteps(t.steps), 0);
 const reindex   = (tasks, sopId) =>
   tasks.map((t,i) => ({ ...t, taskNo:i+1, taskId:genTaskId(sopId,i+1) }));
 
+// Generate station number from line identifier + 1-based position
+const autoStationNo = (identifier, position) =>
+  identifier ? `${identifier.toUpperCase().trim()}-${String(position).padStart(2,"0")}` : "";
+
+// Apply auto station numbers to all stations in a line and regenerate sopIds
+const applyStationNos = (line, stations, onStationsChange) => {
+  if(!line.stationIdentifier) return;
+  line.stationIds.forEach((id, i) => {
+    const s = stations.find(st=>st.id===id);
+    if(!s) return;
+    const newNo  = autoStationNo(line.stationIdentifier, i+1);
+    const newId  = genSopId(newNo, s.asmVersion, s.sopRev);
+    const tasks  = s.tasks.map(t=>({...t, taskId:genTaskId(newId,t.taskNo)}));
+    onStationsChange(prev=>prev.map(st=>st.id===id ? {...st,stationNo:newNo,sopId:newId,tasks} : st));
+  });
+};
+
 // ─── Factories ────────────────────────────────────────────────────────────────
 const mkStation = () => ({
   id: Date.now()+Math.random(),
@@ -56,6 +73,7 @@ const mkLine = () => ({
   id: Date.now()+Math.random(),
   name: "",
   description: "",
+  stationIdentifier: "",  // e.g. "PWD-WIP" — prepended to station position number
   stationIds: [],   // ordered list of station IDs belonging to this line
 });
 
@@ -773,13 +791,35 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
             {isLineOpen && (
               <div style={{padding:16}}>
                 {/* Line name + description */}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10,marginBottom:14}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
                   <div>
                     <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>Line Name *</label>
                     <input value={line.name} onChange={e=>updLine({...line,name:e.target.value})}
-                      placeholder="e.g. Powder Coat, Final Assembly"
+                      placeholder="e.g. Powder Coat"
                       style={{width:"100%",padding:"6px 8px",border:"1px solid #ccc",borderRadius:4,fontSize:13,fontWeight:600}}/>
-                    <div style={{fontSize:10,color:"#888",marginTop:3}}>Appears in SOP header on preview and PDF</div>
+                    <div style={{fontSize:10,color:"#888",marginTop:3}}>Appears in SOP header</div>
+                  </div>
+                  <div>
+                    <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>Station Identifier</label>
+                    <input value={line.stationIdentifier||""} onChange={e=>{
+                      const updated={...line,stationIdentifier:e.target.value.toUpperCase()};
+                      updLine(updated);
+                      // Re-apply station numbers immediately when identifier changes
+                      if(e.target.value.trim()) {
+                        updated.stationIds.forEach((id,i)=>{
+                          const s=stations.find(st=>st.id===id); if(!s) return;
+                          const newNo=autoStationNo(e.target.value,i+1);
+                          const newSopId=genSopId(newNo,s.asmVersion,s.sopRev);
+                          const tasks=s.tasks.map(t=>({...t,taskId:genTaskId(newSopId,t.taskNo)}));
+                          onStationsChange(prev=>prev.map(st=>st.id===id?{...st,stationNo:newNo,sopId:newSopId,tasks}:st));
+                        });
+                      }
+                    }}
+                      placeholder="e.g. PWD-WIP"
+                      style={{width:"100%",padding:"6px 8px",border:`1px solid ${line.stationIdentifier?TEAL:"#ccc"}`,borderRadius:4,fontSize:13,fontWeight:600,fontFamily:"monospace",textTransform:"uppercase"}}/>
+                    <div style={{fontSize:10,color:"#888",marginTop:3}}>
+                      Station Nos: <span style={{fontFamily:"monospace",color:TEAL_DARK}}>{line.stationIdentifier?`${line.stationIdentifier}-01, ${line.stationIdentifier}-02…`:"(enter identifier)"}</span>
+                    </div>
                   </div>
                   <div>
                     <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>Description</label>
@@ -818,7 +858,18 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                         if(from===i) return;
                         const ids=[...line.stationIds];
                         const [removed]=ids.splice(from,1); ids.splice(i,0,removed);
-                        updLine({...line,stationIds:ids});
+                        const reorderedLine={...line,stationIds:ids};
+                        updLine(reorderedLine);
+                        // Recompute station numbers after reorder
+                        if(line.stationIdentifier) {
+                          ids.forEach((sid,pos)=>{
+                            const st=stations.find(s=>s.id===sid); if(!st) return;
+                            const newNo=autoStationNo(line.stationIdentifier,pos+1);
+                            const newSopId=genSopId(newNo,st.asmVersion,st.sopRev);
+                            const tasks=st.tasks.map(t=>({...t,taskId:genTaskId(newSopId,t.taskNo)}));
+                            onStationsChange(prev=>prev.map(s=>s.id===sid?{...s,stationNo:newNo,sopId:newSopId,tasks}:s));
+                          });
+                        }
                       }}
                       style={{marginBottom:6}}>
                       {/* Drag handle row above StationEditor */}
@@ -844,6 +895,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                         onPreview={()=>setPreview({...s,lineName:line.name})}
                         allStations={stations}
                         lineName={line.name}
+                        stationIdentifier={line.stationIdentifier||""}
                       />
                     </div>
                   ))}
@@ -857,7 +909,17 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                       <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
                         {stations.filter(s=>!line.stationIds.includes(s.id)).map(s=>(
                           <button key={s.id}
-                            onClick={()=>updLine({...line,stationIds:[...line.stationIds,s.id]})}
+                            onClick={()=>{
+                              const newIds=[...line.stationIds,s.id];
+                              updLine({...line,stationIds:newIds});
+                              if(line.stationIdentifier){
+                                const pos=newIds.length;
+                                const newNo=autoStationNo(line.stationIdentifier,pos);
+                                const newSopId=genSopId(newNo,s.asmVersion,s.sopRev);
+                                const tasks=s.tasks.map(t=>({...t,taskId:genTaskId(newSopId,t.taskNo)}));
+                                onStationsChange(prev=>prev.map(st=>st.id===s.id?{...st,stationNo:newNo,sopId:newSopId,tasks}:st));
+                              }
+                            }}
                             style={{padding:"4px 10px",fontSize:11,background:"#e8f5e9",border:"1px solid #a5d6a7",
                                     borderRadius:4,cursor:"pointer",color:"#2e7d32"}}>
                             + {s.stationNo||s.sopId||"Station"}{s.stationDesc?" — "+s.stationDesc:""}
@@ -1495,7 +1557,7 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
 }
 
 // ─── Station Editor ───────────────────────────────────────────────────────────
-function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPreview, allStations, lineName="" }) {
+function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPreview, allStations, lineName="", stationIdentifier="" }) {
   const u=(f,v)=>{
     const upd={...station,[f]:v};
     if(["stationNo","asmVersion","sopRev"].includes(f)){
@@ -1560,7 +1622,21 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
         <div style={{padding:16}}>
           {/* Station fields */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:8}}>
-            {[{l:"Station No. *",f:"stationNo",ph:"REF-WIP-02"},{l:"Station Description",f:"stationDesc",ph:"BATTERY"},
+            {/* Station No — read-only if managed by line identifier */}
+            <div>
+              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>
+                Station No.{stationIdentifier?"":" *"}
+                {stationIdentifier && <span style={{fontSize:10,color:TEAL,marginLeft:4}}>auto</span>}
+              </label>
+              <input value={station.stationNo||""} readOnly={!!stationIdentifier}
+                onChange={e=>!stationIdentifier&&u("stationNo",e.target.value)}
+                placeholder={stationIdentifier?"(auto-assigned)":"REF-WIP-02"}
+                style={{width:"100%",padding:"5px 7px",border:`1px solid ${stationIdentifier?"#b2dfdb":"#ccc"}`,borderRadius:4,
+                        fontSize:12,background:stationIdentifier?"#e0f2f1":"white",
+                        cursor:stationIdentifier?"not-allowed":"text",
+                        fontWeight:stationIdentifier?700:400,color:stationIdentifier?TEAL_DARK:"inherit"}}/>
+            </div>
+            {[{l:"Station Description",f:"stationDesc",ph:"BATTERY"},
               {l:"ASM Version",f:"asmVersion",ph:"2"},{l:"Revised By",f:"revisedBy",ph:"Name"}
             ].map(({l,f,ph})=>(
               <div key={f}>
