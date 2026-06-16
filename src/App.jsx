@@ -52,9 +52,15 @@ const mkStep = () => ({
   id:Date.now()+Math.random(), useStepNumber:true, stepNumber:"",
   description:"", keyPoints:"", icons:[], cycleTime:"", image:null, selectedTools:[], selectedDrawings:[],
 });
+const mkLine = () => ({
+  id: Date.now()+Math.random(),
+  name: "",
+  description: "",
+  stationIds: [],   // ordered list of station IDs belonging to this line
+});
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
-const lsSave = (s) => { try { localStorage.setItem(SAVE_KEY, JSON.stringify({version:1,savedAt:new Date().toISOString(),stations:s})); } catch{} };
+const lsSave = (s, l=[]) => { try { localStorage.setItem(SAVE_KEY, JSON.stringify({version:2,savedAt:new Date().toISOString(),stations:s,lines:l})); } catch{} };
 const migrateStation = (s) => {
   // Seed revisionEntries if missing (stations saved before this feature)
   if (!s.revisionEntries || s.revisionEntries.length === 0) {
@@ -76,19 +82,28 @@ const migrateStation = (s) => {
   if (!s.toolList) s = { ...s, toolList: [] };
   return s;
 };
-const lsLoad = () => { try { const r=localStorage.getItem(SAVE_KEY); return r?JSON.parse(r).stations.map(migrateStation):null; } catch{ return null; } };
-const saveFile = (stations, station=null) => {
-  // If a single station is passed name the file after it, otherwise use a date stamp
+const lsLoad = () => {
+  try {
+    const r=localStorage.getItem(SAVE_KEY);
+    if(!r) return null;
+    const d=JSON.parse(r);
+    return { stations:(d.stations||[]).map(migrateStation), lines:d.lines||[] };
+  } catch{ return null; }
+};
+const saveFile = (stations, lines=[], station=null, lineName=null) => {
+  const date = new Date().toISOString().slice(0,10);
   const name = station
     ? [station.sopId, station.stationDesc].filter(Boolean).join("_").replace(/[^a-zA-Z0-9_\-]/g,"_") || "SOP_save"
-    : `SOP_save_${new Date().toISOString().slice(0,10)}`;
+    : lineName
+      ? `${lineName.replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_")}_${date}`
+      : `SOP_save_${date}`;
   const a=document.createElement("a");
-  a.href=URL.createObjectURL(new Blob([JSON.stringify({version:1,savedAt:new Date().toISOString(),stations},null,2)],{type:"application/json"}));
+  a.href=URL.createObjectURL(new Blob([JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines},null,2)],{type:"application/json"}));
   a.download=`${name}.json`; a.click();
 };
 const loadFile = (file,cb) => {
   const r=new FileReader();
-  r.onload=e=>{ try{ const d=JSON.parse(e.target.result); if(d.stations) cb(d.stations.map(migrateStation)); else alert("Invalid save file."); }catch{ alert("Could not read file."); } };
+  r.onload=e=>{ try{ const d=JSON.parse(e.target.result); if(d.stations) cb({stations:d.stations.map(migrateStation),lines:d.lines||[]}); else alert("Invalid save file."); }catch{ alert("Could not read file."); } };
   r.readAsText(file);
 };
 
@@ -113,13 +128,17 @@ const exportCSV = (stations) => {
 const buildPrintHTML = (station, screen=false) => {
   const safe = (s) => String(s||"")
     .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br/>");
+  // Render **bold** and _italic_ markers
+  const rich = (s) => safe(s)
+    .replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>")
+    .replace(/_(.+?)_/g,"<em>$1</em>");
   const today = new Date().toLocaleDateString();
 
   const hdr = (extra="") => `
     <table class="ht" cellspacing="0">
       <tr>
         <td rowspan="3" class="logo">LVT</td>
-        <td colspan="6" class="title">SOP Trailer Assembly</td>
+        <td colspan="6" class="title">${safe(station.lineName||'SOP')} — Standard Operating Procedure</td>
       </tr>
       <tr>
         <td class="lbl">ASM Version</td><td>${safe(station.asmVersion)||"—"}</td>
@@ -168,6 +187,34 @@ const buildPrintHTML = (station, screen=false) => {
           <tr><td colspan="4" class="sh">General Notes</td></tr>
           <tr><td colspan="4" class="content">${safe(station.generalNotes)}${stImgs?"<br/>"+stImgs:""}&nbsp;</td></tr>
         </table>
+
+        <!-- Table of Contents -->
+        ${station.tasks.length > 0 ? `
+        <table class="bt toc-table" cellspacing="0" style="margin-top:8px;">
+          <tr><td colspan="3" class="sh">Table of Contents</td></tr>
+          <tr>
+            <td class="lbl" style="width:60px;">Task</td>
+            <td class="lbl">Description</td>
+            <td class="lbl" style="width:80px;text-align:right;">Page</td>
+          </tr>
+          ${station.tasks.map((t,i)=>`
+          <tr style="background:${i%2===0?"white":"#fafafa"};">
+            <td style="padding:4px 6px;font-weight:700;color:#00695c;">${String(t.taskNo).padStart(2,"0")}</td>
+            <td style="padding:4px 6px;">${safe(t.description)}</td>
+            <td style="padding:4px 6px;text-align:right;color:#888;">${i+2}</td>
+          </tr>`).join("")}
+        </table>` : ""}
+
+        <!-- Icon Legend -->
+        ${Object.entries(ICONS).filter(([k])=>k!=="none").length > 0 ? `
+        <table class="bt" cellspacing="0" style="margin-top:8px;">
+          <tr><td colspan="4" class="sh">Icon Legend</td></tr>
+          <tr>
+            ${Object.entries(ICONS).filter(([k])=>k!=="none").map(([k,v])=>
+              `<td style="padding:4px 8px;font-size:8.5pt;"><span style="font-size:12pt;">${v.emoji}</span>&nbsp;${v.label.replace(/^\S+\s/,"")}</td>`
+            ).join("")}
+          </tr>
+        </table>` : ""}
       </div>
       ${screenFtr(1)}
     </div>`;
@@ -197,11 +244,11 @@ const buildPrintHTML = (station, screen=false) => {
       const ico = (step.icons&&step.icons.length?step.icons:step.icon&&step.icon!=="none"?[step.icon]:[]).map(k=>ICONS[k]?.emoji||"").filter(Boolean).join(" ")+(((step.icons&&step.icons.length)||(step.icon&&step.icon!=="none"))?" ":"");
       const num = step.useStepNumber ? `<strong>${step.stepNumber||si+1}</strong>` : "";
       const img = step.image ? `<div class="step-img-wrap"><img src="${step.image}" class="sthumb"/></div>` : "";
-      const kp  = step.keyPoints ? `<br/><em class="kp">${safe(step.keyPoints)}</em>` : "";
+      const kp  = step.keyPoints ? `<br/><em class="kp">${rich(step.keyPoints)}</em>` : "";
       const stepRefs = refTags(step.selectedTools, step.selectedDrawings);
       return `<tr class="step-row">
         <td class="step-num">${num}</td>
-        <td class="step-desc">${ico}<strong>${safe(step.description)}</strong>${kp}${stepRefs}${img}</td>
+        <td class="step-desc">${ico}${rich(step.description)}${kp}${stepRefs}${img}</td>
         <td class="step-time">${step.cycleTime?parseFloat(step.cycleTime).toFixed(2):""}</td>
       </tr>`;
     }).join("");
@@ -574,6 +621,229 @@ function RefDropdown({ label, options, selected, onChange, compact=false }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Auto-Expanding Textarea ─────────────────────────────────────────────────
+function AutoTextarea({ value, onChange, placeholder, minRows=2, style={} }) {
+  const ref = useRef();
+  useEffect(() => {
+    if(ref.current){
+      ref.current.style.height = "auto";
+      ref.current.style.height = ref.current.scrollHeight + "px";
+    }
+  }, [value]);
+  return (
+    <textarea ref={ref} value={value} onChange={onChange} placeholder={placeholder} rows={minRows}
+      style={{width:"100%",padding:"5px 7px",border:"1px solid #ccc",borderRadius:4,
+              fontSize:12,resize:"vertical",overflow:"hidden",minHeight:`${minRows*1.6}em`,...style}}
+    />
+  );
+}
+
+// ─── Rich Text Editor ─────────────────────────────────────────────────────────
+// Wraps a textarea with Bold/Italic toolbar buttons. Text is stored as plain
+// markdown-style: **bold** and _italic_. Rendered as HTML in preview/PDF.
+function RichTextEditor({ value, onChange, placeholder, minRows=2 }) {
+  const ref = useRef();
+
+  const wrap = (before, after) => {
+    const el = ref.current;
+    if(!el) return;
+    const start = el.selectionStart;
+    const end   = el.selectionEnd;
+    const selected = value.slice(start, end);
+    const newVal = value.slice(0, start) + before + selected + after + value.slice(end);
+    onChange({ target: { value: newVal } });
+    // Restore selection after state update
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(start + before.length, end + before.length);
+    }, 10);
+  };
+
+  // Render preview of bold/italic for display hint
+  const preview = value
+    .replace(/\*\*(.+?)\*\*/g, (_, t) => `**${t}**`)
+    .replace(/_(.+?)_/g, (_, t) => `_${t}_`);
+
+  return (
+    <div>
+      <div style={{display:"flex",gap:4,marginBottom:3}}>
+        <button type="button" onMouseDown={e=>{e.preventDefault();wrap("**","**");}}
+          title="Bold selected text"
+          style={{padding:"1px 8px",fontSize:12,fontWeight:700,border:"1px solid #ccc",borderRadius:3,cursor:"pointer",background:"#f5f5f5"}}>
+          B
+        </button>
+        <button type="button" onMouseDown={e=>{e.preventDefault();wrap("_","_");}}
+          title="Italic selected text"
+          style={{padding:"1px 8px",fontSize:12,fontStyle:"italic",border:"1px solid #ccc",borderRadius:3,cursor:"pointer",background:"#f5f5f5"}}>
+          I
+        </button>
+        <span style={{fontSize:10,color:"#aaa",alignSelf:"center",marginLeft:4}}>
+          Select text then click B or I
+        </span>
+      </div>
+      <AutoTextarea ref={ref} value={value} onChange={onChange} placeholder={placeholder} minRows={minRows}
+        style={{fontFamily:"monospace"}}/>
+    </div>
+  );
+}
+
+// ─── Lines Manager ────────────────────────────────────────────────────────────
+function LinesManager({ lines, stations, onLinesChange, onStationsChange, setActiveStation, setTab }) {
+  const [activeLineId, setActiveLineId] = useState(null);
+
+  const addLine = () => {
+    const l = mkLine();
+    onLinesChange([...lines, l]);
+    setActiveLineId(l.id);
+  };
+  const updLine = (updated) => onLinesChange(lines.map(l => l.id===updated.id ? updated : l));
+  const delLine = (id) => { onLinesChange(lines.filter(l=>l.id!==id)); if(activeLineId===id) setActiveLineId(null); };
+
+  // Stations not yet assigned to any line
+  const assignedIds = new Set(lines.flatMap(l=>l.stationIds));
+  const unassigned  = stations.filter(s=>!assignedIds.has(s.id));
+
+  const activeLine = lines.find(l=>l.id===activeLineId);
+
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div>
+          <h2 style={{margin:0,color:TEAL_DARK}}>Production Lines</h2>
+          <span style={{fontSize:12,color:"#888"}}>{lines.length} line(s) · {stations.length} total station(s)</span>
+        </div>
+        <button onClick={addLine}
+          style={{background:TEAL,color:"white",border:"none",borderRadius:8,padding:"10px 20px",cursor:"pointer",fontSize:14,fontWeight:700,boxShadow:"0 2px 6px rgba(0,137,123,0.3)"}}>
+          + New Line
+        </button>
+      </div>
+
+      {lines.length===0 && (
+        <div style={{textAlign:"center",padding:60,color:"#bbb",background:"white",borderRadius:12,border:"2px dashed #e0e0e0"}}>
+          <div style={{fontSize:48}}>🏗️</div>
+          <div style={{fontSize:16,marginTop:10,fontWeight:600}}>No lines yet</div>
+          <div style={{fontSize:13,marginTop:6}}>Create a line to group stations together. The line name will appear in SOP headers.</div>
+        </div>
+      )}
+
+      {lines.map(line => {
+        const lineStations = line.stationIds.map(id=>stations.find(s=>s.id===id)).filter(Boolean);
+        const totalTime = lineStations.reduce((sum,s)=>sum+sumTasks(s.tasks),0);
+        const isOpen = activeLineId===line.id;
+
+        return (
+          <div key={line.id} style={{border:isOpen?`2px solid ${TEAL}`:"1px solid #ddd",borderRadius:10,marginBottom:10,
+              overflow:"hidden",background:"white",boxShadow:isOpen?"0 2px 12px rgba(0,137,123,0.12)":"0 1px 3px rgba(0,0,0,0.06)"}}>
+            {/* Line header */}
+            <div onClick={()=>setActiveLineId(isOpen?null:line.id)}
+              style={{background:isOpen?TEAL:"#f5f5f5",color:isOpen?"white":"#333",padding:"10px 14px",
+                      cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",userSelect:"none"}}>
+              <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                <span style={{fontWeight:700,fontSize:15}}>🏗️ {line.name||"New Line"}</span>
+                <span style={{fontSize:12,opacity:0.8}}>{lineStations.length} station(s) · ⏱ {fmtTime(totalTime)}</span>
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={e=>{e.stopPropagation();
+                  // Export all PDFs for this line's stations
+                  lineStations.forEach((s,i)=>setTimeout(()=>exportPDF({...s,lineName:line.name}),i*500));
+                }} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isOpen?"white":"#333"}}>
+                  📄 All PDFs
+                </button>
+                <button onClick={e=>{e.stopPropagation();delLine(line.id);}}
+                  style={{background:"rgba(200,0,0,0.12)",border:"1px solid rgba(200,0,0,0.25)",borderRadius:4,padding:"3px 8px",cursor:"pointer",color:"#c62828",fontSize:12}}>✕</button>
+              </div>
+            </div>
+
+            {isOpen && (
+              <div style={{padding:16}}>
+                {/* Line name + description */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10,marginBottom:14}}>
+                  <div>
+                    <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>Line Name *</label>
+                    <input value={line.name} onChange={e=>updLine({...line,name:e.target.value})}
+                      placeholder="e.g. Powder Coat, Final Assembly"
+                      style={{width:"100%",padding:"6px 8px",border:"1px solid #ccc",borderRadius:4,fontSize:13,fontWeight:600}}/>
+                    <div style={{fontSize:10,color:"#888",marginTop:3}}>Used as SOP header title</div>
+                  </div>
+                  <div>
+                    <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>Description</label>
+                    <input value={line.description||""} onChange={e=>updLine({...line,description:e.target.value})}
+                      placeholder="Optional line description"
+                      style={{width:"100%",padding:"6px 8px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}/>
+                  </div>
+                </div>
+
+                {/* Assigned stations — ordered list, drag to reorder */}
+                <div style={{marginBottom:12}}>
+                  <div style={{fontWeight:600,fontSize:13,color:TEAL_DARK,marginBottom:6}}>
+                    Stations in this line ({lineStations.length})
+                    <span style={{fontSize:11,color:"#aaa",fontWeight:400,marginLeft:8}}>⠿ drag to reorder</span>
+                  </div>
+                  {lineStations.length===0 && (
+                    <div style={{color:"#aaa",fontSize:12,fontStyle:"italic",padding:"8px 0"}}>No stations assigned yet — add from the list below.</div>
+                  )}
+                  {lineStations.map((s,i) => (
+                    <div key={s.id}
+                      draggable
+                      onDragStart={e=>e.dataTransfer.setData("text/plain",String(i))}
+                      onDragOver={e=>e.preventDefault()}
+                      onDrop={e=>{
+                        e.preventDefault();
+                        const from=parseInt(e.dataTransfer.getData("text/plain"));
+                        if(from===i) return;
+                        const ids=[...line.stationIds];
+                        const [removed]=ids.splice(from,1); ids.splice(i,0,removed);
+                        updLine({...line,stationIds:ids});
+                      }}
+                      style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",
+                              background:i%2===0?"#f9f9f9":"white",borderRadius:6,marginBottom:3,
+                              border:"1px solid #eee",cursor:"grab"}}>
+                      <span style={{color:"#bbb",fontSize:16}}>⠿</span>
+                      <span style={{background:TEAL,color:"white",borderRadius:3,padding:"1px 7px",fontSize:11,fontWeight:700,flexShrink:0}}>
+                        {String(i+1).padStart(2,"0")}
+                      </span>
+                      <span style={{fontFamily:"monospace",fontSize:11,color:TEAL_DARK,flexShrink:0}}>{s.sopId}</span>
+                      <span style={{fontSize:12,flex:1}}>{s.stationNo}{s.stationDesc?" — "+s.stationDesc:""}</span>
+                      <span style={{fontSize:11,color:"#888"}}>{s.tasks.length} task(s) · {fmtTime(sumTasks(s.tasks))}</span>
+                      <button onClick={()=>{ setTab("stations"); setActiveStation(s.id); }}
+                        style={{fontSize:11,padding:"2px 8px",background:"#e3f2fd",border:"1px solid #90caf9",borderRadius:3,cursor:"pointer",color:"#1565c0",flexShrink:0}}>
+                        Edit
+                      </button>
+                      <button onClick={()=>updLine({...line,stationIds:line.stationIds.filter(id=>id!==s.id)})}
+                        style={{fontSize:11,padding:"2px 7px",background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:3,cursor:"pointer",color:"#c62828",flexShrink:0}}>
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add unassigned stations */}
+                {(unassigned.length>0||stations.filter(s=>!line.stationIds.includes(s.id)&&assignedIds.has(s.id)).length>0) && (
+                  <div style={{borderTop:"1px solid #e0e0e0",paddingTop:10}}>
+                    <div style={{fontWeight:600,fontSize:12,color:"#555",marginBottom:6}}>Add stations to this line:</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {stations.filter(s=>!line.stationIds.includes(s.id)).map(s=>(
+                        <button key={s.id}
+                          onClick={()=>updLine({...line,stationIds:[...line.stationIds,s.id]})}
+                          style={{padding:"4px 10px",fontSize:11,background:"#e8f5e9",border:"1px solid #a5d6a7",
+                                  borderRadius:4,cursor:"pointer",color:"#2e7d32"}}>
+                          + {s.stationNo||s.sopId||"Station"}{s.stationDesc?" — "+s.stationDesc:""}
+                          {assignedIds.has(s.id)&&!line.stationIds.includes(s.id)?
+                            <span style={{color:"#ff6f00",marginLeft:4,fontSize:10}}>(in another line)</span>:""}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1246,7 +1516,7 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
         </div>
         <div style={{display:"flex",gap:6,flexShrink:0}}>
           <button onClick={e=>{e.stopPropagation();onPreview();}} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>👁 Preview</button>
-          <button onClick={e=>{e.stopPropagation();exportPDF(station);}} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>📄 PDF</button>
+          <button onClick={e=>{e.stopPropagation();exportPDF({...station,lineName:stationLineName(station.id)});}} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>📄 PDF</button>
           <button onClick={e=>{e.stopPropagation();saveFile([station],station);}} title="Save this station to a file" style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>💾 Save</button>
           <button onClick={e=>{e.stopPropagation();onDelete();}} style={{background:"rgba(200,0,0,0.12)",border:"1px solid rgba(200,0,0,0.25)",borderRadius:4,padding:"3px 8px",cursor:"pointer",color:"#c62828",fontSize:12}}>✕</button>
         </div>
@@ -1281,8 +1551,7 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
           ].map(({l,f,rows})=>(
             <div key={f} style={{marginBottom:8}}>
               <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>{l}</label>
-              <textarea value={station[f]||""} onChange={e=>u(f,e.target.value)} rows={rows}
-                style={{width:"100%",padding:"5px 7px",border:"1px solid #ccc",borderRadius:4,fontSize:12,resize:"vertical"}}/>
+              <AutoTextarea value={station[f]||""} onChange={e=>u(f,e.target.value)} minRows={rows}/>
             </div>
           ))}
           {/* Tools & Equipment list */}
@@ -1408,6 +1677,460 @@ function LineBalance({ stations }) {
   );
 }
 
+
+// ─── Import Wizard ─────────────────────────────────────────────────────────────
+// Three steps:
+//   1. Parse file, show what's inside
+//   2. Select which stations / tasks / steps to import
+//   3. Choose destination (which line, which station, which task)
+//      then execute import
+
+function ImportWizard({ currentStations, currentLines, onClose, onImport }) {
+  const [step,        setStep]        = useState(1); // 1=pick file 2=select items 3=assign
+  const [fileData,    setFileData]    = useState(null); // parsed {stations,lines}
+  const [fileName,    setFileName]    = useState("");
+  const [error,       setError]       = useState("");
+
+  // Selection state: Set of ids
+  const [selStations, setSelStations] = useState(new Set());
+  const [selTasks,    setSelTasks]    = useState(new Set());   // "stationId::taskId"
+  const [selSteps,    setSelSteps]    = useState(new Set());   // "stationId::taskId::stepId"
+
+  // Destination choices per imported task (when importing tasks without their station)
+  const [taskDest,    setTaskDest]    = useState({});  // taskKey → {stationId}
+  // Destination choices per imported step
+  const [stepDest,    setStepDest]    = useState({});  // stepKey → {stationId, taskId:"new"|id, newTaskDesc}
+
+  const fileRef = useRef();
+
+  // ── Step 1: Parse file ────────────────────────────────────────────────────
+  const handleFile = (file) => {
+    if(!file) return;
+    setFileName(file.name);
+    const r = new FileReader();
+    r.onload = (e) => {
+      try {
+        const d = JSON.parse(e.target.result);
+        const stations = (d.stations||[]).map(migrateStation);
+        const lines    = d.lines || [];
+        if(!stations.length) { setError("No stations found in this file."); return; }
+        setFileData({ stations, lines });
+        setError("");
+        setStep(2);
+      } catch { setError("Could not read file — is it a valid SOP Builder save?"); }
+    };
+    r.readAsText(file);
+  };
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const toggleStation = (sid) => {
+    setSelStations(prev => {
+      const next = new Set(prev);
+      if(next.has(sid)) {
+        next.delete(sid);
+        // also deselect its tasks/steps
+        setSelTasks(t => { const n=new Set(t); [...n].filter(k=>k.startsWith(sid+"::")).forEach(k=>n.delete(k)); return n; });
+        setSelSteps(s => { const n=new Set(s); [...n].filter(k=>k.startsWith(sid+"::")).forEach(k=>n.delete(k)); return n; });
+      } else {
+        next.add(sid);
+      }
+      return next;
+    });
+  };
+  const toggleTask = (sid, tid) => {
+    const key = sid+"::"+tid;
+    setSelTasks(prev => {
+      const next = new Set(prev);
+      if(next.has(key)) {
+        next.delete(key);
+        setSelSteps(s => { const n=new Set(s); [...n].filter(k=>k.startsWith(key+"::")).forEach(k=>n.delete(k)); return n; });
+      } else { next.add(key); }
+      return next;
+    });
+  };
+  const toggleStep = (sid, tid, stid) => {
+    const key = sid+"::"+tid+"::"+stid;
+    setSelSteps(prev => { const next=new Set(prev); next.has(key)?next.delete(key):next.add(key); return next; });
+  };
+  const selectAll = () => {
+    if(!fileData) return;
+    const sids=new Set(), tkeys=new Set(), stkeys=new Set();
+    fileData.stations.forEach(s => {
+      sids.add(s.id);
+      s.tasks.forEach(t => {
+        tkeys.add(s.id+"::"+t.id);
+        t.steps.forEach(st => stkeys.add(s.id+"::"+t.id+"::"+st.id));
+      });
+    });
+    setSelStations(sids); setSelTasks(tkeys); setSelSteps(stkeys);
+  };
+  const clearAll = () => { setSelStations(new Set()); setSelTasks(new Set()); setSelSteps(new Set()); };
+
+  // Count selected
+  const stationCount = selStations.size;
+  const taskCount    = [...selTasks].filter(k => !selStations.has(k.split("::")[0])).length;
+  const stepCount    = [...selSteps].filter(k => {
+    const [sid,tid] = k.split("::");
+    return !selStations.has(sid) && !selTasks.has(sid+"::"+tid);
+  }).length;
+  const totalSelected = stationCount + taskCount + stepCount;
+
+  // ── Step 3: Build destination form ───────────────────────────────────────
+  // Orphan tasks: selected tasks whose station is NOT selected
+  const orphanTasks = fileData ? [...selTasks].filter(k => !selStations.has(k.split("::")[0])).map(k => {
+    const [sid,tid] = k.split("::");
+    const st = fileData.stations.find(s=>s.id===sid);
+    const t  = st?.tasks.find(t=>t.id===tid);
+    return t ? { key:k, sid, task:t, stationName:st?.stationNo||st?.sopId||"Station" } : null;
+  }).filter(Boolean) : [];
+
+  // Orphan steps: selected steps whose task is NOT selected and station is NOT selected
+  const orphanSteps = fileData ? [...selSteps].filter(k => {
+    const [sid,tid] = k.split("::");
+    return !selStations.has(sid) && !selTasks.has(sid+"::"+tid);
+  }).map(k => {
+    const [sid,tid,stid] = k.split("::");
+    const st  = fileData.stations.find(s=>s.id===sid);
+    const t   = st?.tasks.find(t=>t.id===tid);
+    const stp = t?.steps.find(s=>s.id===stid);
+    return stp ? { key:k, sid, tid, step:stp, taskDesc:t?.description||"Task", stationName:st?.stationNo||"Station" } : null;
+  }).filter(Boolean) : [];
+
+  const needsAssignment = orphanTasks.length > 0 || orphanSteps.length > 0;
+
+  // ── Execute import ────────────────────────────────────────────────────────
+  const doImport = () => {
+    let newStations = [...currentStations];
+    let newLines    = [...currentLines];
+
+    // Helper: fresh IDs
+    const freshStation = (s) => ({
+      ...s,
+      id: Date.now()+Math.random(),
+      tasks: s.tasks.map(t => ({
+        ...t, id:Date.now()+Math.random(),
+        steps: t.steps.map(st => ({...st, id:Date.now()+Math.random()}))
+      }))
+    });
+    const freshTask = (t) => ({
+      ...t, id:Date.now()+Math.random(),
+      steps: t.steps.map(st => ({...st, id:Date.now()+Math.random()}))
+    });
+
+    // 1. Import full stations
+    const importedStationIdMap = {}; // old id → new station
+    selStations.forEach(sid => {
+      const orig = fileData.stations.find(s=>s.id===sid);
+      if(!orig) return;
+      // Determine which tasks to include: all tasks, but filter steps to selected ones
+      const station = freshStation({
+        ...orig,
+        tasks: orig.tasks.map(t => {
+          const tkey = sid+"::"+t.id;
+          // Include all steps that are either: task is selected (all steps), or individual step selected
+          const steps = selTasks.has(tkey)
+            ? t.steps  // all steps
+            : t.steps.filter(st => selSteps.has(sid+"::"+t.id+"::"+st.id));
+          return { ...t, steps };
+        }).filter(t => {
+          // Include task if: it's selected, or any of its steps are selected
+          const tkey = sid+"::"+t.id;
+          return selTasks.has(tkey) || t.steps.some(st => selSteps.has(sid+"::"+t.id+"::"+st.id));
+        })
+      });
+      // Reindex tasks
+      station.tasks = reindex(station.tasks, station.sopId);
+      importedStationIdMap[sid] = station;
+      newStations.push(station);
+    });
+
+    // 2. Import orphan tasks → assign to destination station
+    orphanTasks.forEach(({ key, task }) => {
+      const destSid = taskDest[key]?.stationId;
+      const target  = newStations.find(s=>s.id===destSid);
+      if(!target) return;
+      const t = freshTask({
+        ...task,
+        // filter to only selected steps
+        steps: task.steps.filter(st => selSteps.has(key+"::"+st.id) || selTasks.has(key))
+      });
+      target.tasks = reindex([...target.tasks, t], target.sopId);
+      newStations = newStations.map(s=>s.id===destSid?target:s);
+    });
+
+    // 3. Import orphan steps → assign to destination task
+    orphanSteps.forEach(({ key, step }) => {
+      const dest    = stepDest[key] || {};
+      const target  = newStations.find(s=>s.id===dest.stationId);
+      if(!target) return;
+      if(dest.taskId==="new") {
+        // Create a new task in the target station
+        const newTask = mkTask(target.sopId, target.tasks.length+1);
+        newTask.description = (dest.newTaskDesc||"Imported Task").toUpperCase();
+        newTask.steps = [{ ...step, id:Date.now()+Math.random() }];
+        target.tasks = reindex([...target.tasks, newTask], target.sopId);
+      } else {
+        const taskIdx = target.tasks.findIndex(t=>t.id===dest.taskId);
+        if(taskIdx===-1) return;
+        target.tasks[taskIdx] = { ...target.tasks[taskIdx], steps:[...target.tasks[taskIdx].steps, { ...step, id:Date.now()+Math.random() }] };
+      }
+      newStations = newStations.map(s=>s.id===dest.stationId?target:s);
+    });
+
+    onImport(newStations, newLines);
+    onClose();
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  const modalStyle = {position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center"};
+  const cardStyle  = {background:"white",borderRadius:12,padding:0,maxWidth:720,width:"95%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.3)"};
+  const hdrStyle   = {background:TEAL_DARK,color:"white",padding:"14px 20px",borderRadius:"12px 12px 0 0",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0};
+  const bodyStyle  = {padding:20,overflowY:"auto",flex:1};
+  const ftrStyle   = {padding:"12px 20px",borderTop:"1px solid #e0e0e0",display:"flex",gap:10,flexShrink:0,justifyContent:"flex-end"};
+
+  const Btn = ({onClick,children,primary=false,disabled=false}) => (
+    <button onClick={onClick} disabled={disabled}
+      style={{padding:"8px 18px",borderRadius:6,border:primary?"none":"1px solid #ddd",cursor:disabled?"not-allowed":"pointer",
+              background:disabled?"#e0e0e0":primary?TEAL:"#f5f5f5",color:disabled?"#aaa":primary?"white":"#333",
+              fontSize:13,fontWeight:primary?700:400,opacity:disabled?0.7:1}}>
+      {children}
+    </button>
+  );
+
+  return (
+    <div style={modalStyle}>
+      <div style={cardStyle}>
+        {/* Header */}
+        <div style={hdrStyle}>
+          <div>
+            <div style={{fontWeight:700,fontSize:15}}>📥 Import Wizard</div>
+            <div style={{fontSize:11,opacity:0.8,marginTop:2}}>
+              Step {step} of {needsAssignment||step===3?3:2}:&nbsp;
+              {step===1?"Choose a file":step===2?"Select what to import":"Assign destinations"}
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.15)",border:"none",color:"white",borderRadius:4,padding:"4px 10px",cursor:"pointer",fontSize:13}}>✕</button>
+        </div>
+
+        <div style={bodyStyle}>
+
+          {/* ── Step 1: Pick file ── */}
+          {step===1 && (
+            <div style={{textAlign:"center",padding:"30px 0"}}>
+              <div style={{fontSize:48,marginBottom:12}}>📂</div>
+              <div style={{fontSize:15,fontWeight:600,marginBottom:6}}>Select a save file to import from</div>
+              <div style={{fontSize:12,color:"#888",marginBottom:20}}>Supports both the old format (stations only) and the new format (lines + stations)</div>
+              {error && <div style={{background:"#ffebee",color:"#c62828",padding:"8px 14px",borderRadius:6,marginBottom:14,fontSize:12}}>{error}</div>}
+              <button onClick={()=>fileRef.current.click()}
+                style={{background:TEAL,color:"white",border:"none",borderRadius:8,padding:"12px 28px",cursor:"pointer",fontSize:14,fontWeight:700}}>
+                Browse for File…
+              </button>
+              <input ref={fileRef} type="file" accept=".json" style={{display:"none"}} onChange={e=>{handleFile(e.target.files[0]);e.target.value="";}}/>
+            </div>
+          )}
+
+          {/* ── Step 2: Select items ── */}
+          {step===2 && fileData && (
+            <div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div>
+                  <span style={{fontWeight:600,fontSize:13}}>File: </span>
+                  <span style={{fontSize:12,color:"#555"}}>{fileName}</span>
+                  <span style={{fontSize:11,color:"#888",marginLeft:8}}>
+                    — {fileData.stations.length} station(s), {fileData.stations.reduce((n,s)=>n+s.tasks.length,0)} task(s)
+                  </span>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={selectAll} style={{fontSize:11,padding:"2px 8px",background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:4,cursor:"pointer"}}>Select All</button>
+                  <button onClick={clearAll}  style={{fontSize:11,padding:"2px 8px",background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:4,cursor:"pointer"}}>Clear All</button>
+                </div>
+              </div>
+
+              {/* Selection tree */}
+              {fileData.stations.map(s => {
+                const stationSel = selStations.has(s.id);
+                return (
+                  <div key={s.id} style={{border:"1px solid #e0e0e0",borderRadius:8,marginBottom:8,overflow:"hidden"}}>
+                    {/* Station row */}
+                    <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:stationSel?TEAL_LIGHT:"#f9f9f9",borderBottom:s.tasks.length?"1px solid #e0e0e0":"none"}}>
+                      <input type="checkbox" checked={stationSel} onChange={()=>toggleStation(s.id)} style={{width:15,height:15,cursor:"pointer",accentColor:TEAL}}/>
+                      <span style={{fontSize:16}}>🏭</span>
+                      <span style={{fontWeight:700,fontSize:13,color:TEAL_DARK}}>{s.stationNo||s.sopId||"Station"}</span>
+                      {s.stationDesc && <span style={{fontSize:12,color:"#555"}}>— {s.stationDesc}</span>}
+                      <span style={{fontFamily:"monospace",fontSize:11,color:"#888",marginLeft:4}}>{s.sopId}</span>
+                      <span style={{marginLeft:"auto",fontSize:11,color:"#888"}}>{s.tasks.length} task(s)</span>
+                      {stationSel && <span style={{fontSize:11,background:TEAL,color:"white",padding:"1px 7px",borderRadius:3}}>Full station</span>}
+                    </div>
+                    {/* Tasks */}
+                    {s.tasks.map(t => {
+                      const tkey = s.id+"::"+t.id;
+                      const taskSel = stationSel || selTasks.has(tkey);
+                      return (
+                        <div key={t.id} style={{borderBottom:"1px solid #f0f0f0"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8,padding:"6px 12px 6px 28px",background:taskSel&&!stationSel?"#fff8e1":"white"}}>
+                            <input type="checkbox" checked={taskSel} disabled={stationSel}
+                              onChange={()=>!stationSel&&toggleTask(s.id,t.id)}
+                              style={{width:14,height:14,cursor:stationSel?"not-allowed":"pointer",accentColor:TEAL}}/>
+                            <span style={{fontSize:13}}>📋</span>
+                            <span style={{fontSize:12,fontWeight:600,color:"#444"}}>Task {t.taskNo}</span>
+                            <span style={{fontSize:12,color:"#555",flex:1}}>{t.description||"(no description)"}</span>
+                            <span style={{fontSize:11,color:"#888"}}>{t.steps.length} step(s)</span>
+                            {!stationSel && taskSel && <span style={{fontSize:11,background:"#ff9800",color:"white",padding:"1px 7px",borderRadius:3}}>Full task</span>}
+                          </div>
+                          {/* Steps */}
+                          {t.steps.map((st,si) => {
+                            const stkey = s.id+"::"+t.id+"::"+st.id;
+                            const stepSel = stationSel || taskSel || selSteps.has(stkey);
+                            return (
+                              <div key={st.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"4px 12px 4px 48px",
+                                  background:stepSel&&!stationSel&&!selTasks.has(tkey)?"#f3e5f5":"#fafafa",borderBottom:"1px solid #f5f5f5"}}>
+                                <input type="checkbox" checked={stepSel} disabled={stationSel||selTasks.has(tkey)}
+                                  onChange={()=>!stationSel&&!selTasks.has(tkey)&&toggleStep(s.id,t.id,st.id)}
+                                  style={{marginTop:2,width:13,height:13,cursor:(stationSel||selTasks.has(tkey))?"not-allowed":"pointer",accentColor:TEAL,flexShrink:0}}/>
+                                <span style={{fontSize:11,color:"#888",width:20,textAlign:"center",flexShrink:0}}>{st.stepNumber||si+1}</span>
+                                <span style={{fontSize:11,color:"#555",flex:1,lineHeight:1.4}}>
+                                  {(st.description||"(no description)").slice(0,80)}{st.description?.length>80?"…":""}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+
+              {totalSelected===0 && (
+                <div style={{textAlign:"center",color:"#e65100",fontSize:12,padding:"8px 0",fontWeight:600}}>
+                  Select at least one item to continue.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Step 3: Assign destinations ── */}
+          {step===3 && (
+            <div>
+              <div style={{fontSize:13,color:"#555",marginBottom:14}}>
+                Some selected items need a destination in your current project.
+              </div>
+
+              {/* Orphan tasks */}
+              {orphanTasks.length>0 && (
+                <div style={{marginBottom:16}}>
+                  <div style={{fontWeight:700,fontSize:13,color:TEAL_DARK,marginBottom:8}}>
+                    📋 Tasks — choose which station to add each to:
+                  </div>
+                  {orphanTasks.map(({key,task,stationName})=>(
+                    <div key={key} style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"center",marginBottom:8,padding:"8px 10px",background:"#fffde7",borderRadius:6,border:"1px solid #ffe082"}}>
+                      <div>
+                        <div style={{fontSize:12,fontWeight:600}}>{task.description||"(no description)"}</div>
+                        <div style={{fontSize:11,color:"#888"}}>from: {stationName}</div>
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>Add to station *</label>
+                        <select value={taskDest[key]?.stationId||""}
+                          onChange={e=>setTaskDest(d=>({...d,[key]:{stationId:e.target.value}}))}
+                          style={{width:"100%",padding:"5px 7px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}>
+                          <option value="">— select station —</option>
+                          {currentStations.map(s=>(
+                            <option key={s.id} value={s.id}>{s.stationNo||s.sopId} {s.stationDesc?"— "+s.stationDesc:""}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Orphan steps */}
+              {orphanSteps.length>0 && (
+                <div>
+                  <div style={{fontWeight:700,fontSize:13,color:TEAL_DARK,marginBottom:8}}>
+                    🔢 Steps — choose which station + task to add each to:
+                  </div>
+                  {orphanSteps.map(({key,step,taskDesc,stationName})=>(
+                    <div key={key} style={{padding:"8px 10px",background:"#f3e5f5",borderRadius:6,border:"1px solid #ce93d8",marginBottom:8}}>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,alignItems:"flex-start"}}>
+                        <div>
+                          <div style={{fontSize:12,fontWeight:600}}>{(step.description||"(no description)").slice(0,60)}</div>
+                          <div style={{fontSize:11,color:"#888"}}>from: {stationName} → {taskDesc}</div>
+                        </div>
+                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                          <div>
+                            <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>Station *</label>
+                            <select value={stepDest[key]?.stationId||""}
+                              onChange={e=>setStepDest(d=>({...d,[key]:{...d[key],stationId:e.target.value,taskId:""}}))}
+                              style={{width:"100%",padding:"4px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}>
+                              <option value="">— select station —</option>
+                              {currentStations.map(s=>(
+                                <option key={s.id} value={s.id}>{s.stationNo||s.sopId} {s.stationDesc?"— "+s.stationDesc:""}</option>
+                              ))}
+                            </select>
+                          </div>
+                          {stepDest[key]?.stationId && (
+                            <div>
+                              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>Task *</label>
+                              <select value={stepDest[key]?.taskId||""}
+                                onChange={e=>setStepDest(d=>({...d,[key]:{...d[key],taskId:e.target.value}}))}
+                                style={{width:"100%",padding:"4px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}>
+                                <option value="">— select task —</option>
+                                <option value="new">➕ Create new task…</option>
+                                {(currentStations.find(s=>s.id===stepDest[key]?.stationId)?.tasks||[]).map(t=>(
+                                  <option key={t.id} value={t.id}>Task {t.taskNo}: {t.description||"(untitled)"}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          {stepDest[key]?.taskId==="new" && (
+                            <input value={stepDest[key]?.newTaskDesc||""}
+                              onChange={e=>setStepDest(d=>({...d,[key]:{...d[key],newTaskDesc:e.target.value}}))}
+                              placeholder="New task description"
+                              style={{width:"100%",padding:"4px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}/>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+        </div>
+
+        {/* Footer buttons */}
+        <div style={ftrStyle}>
+          {step>1 && <Btn onClick={()=>setStep(s=>s-1)}>← Back</Btn>}
+          <div style={{flex:1}}/>
+          <Btn onClick={onClose}>Cancel</Btn>
+          {step===2 && (
+            <Btn primary disabled={totalSelected===0}
+              onClick={()=>{ if(needsAssignment) setStep(3); else doImport(); }}>
+              {needsAssignment ? "Next: Assign →" : `Import ${totalSelected} item(s)`}
+            </Btn>
+          )}
+          {step===3 && (
+            <Btn primary
+              onClick={()=>{
+                // Validate all orphans have destinations
+                const missing = [
+                  ...orphanTasks.filter(({key})=>!taskDest[key]?.stationId),
+                  ...orphanSteps.filter(({key})=>!stepDest[key]?.stationId||!stepDest[key]?.taskId)
+                ];
+                if(missing.length){ alert(`Please assign a destination for all ${missing.length} item(s).`); return; }
+                doImport();
+              }}>
+              ✓ Import {totalSelected} item(s)
+            </Btn>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Save Info Modal ──────────────────────────────────────────────────────────
 function SaveInfoModal({ onExport, onClose }) {
   return (
@@ -1462,16 +2185,25 @@ function SaveInfoModal({ onExport, onClose }) {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [stations, setStations] = useState(()=>lsLoad()||[]);
+  const saved = lsLoad();
+  const [stations, setStations] = useState(()=>{ const d=lsLoad(); return d?d.stations:[]; });
+  const [lines,    setLines]    = useState(()=>{ const d=lsLoad(); return d?d.lines:[]; });
   const [active,   setActive]   = useState(null);
-  const [tab,      setTab]      = useState("stations");
+  const [tab,      setTab]      = useState("lines");
   const [preview,  setPreview]  = useState(null);
   const [saveMsg,  setSaveMsg]  = useState("");
   const [showSaveInfo, setShowSaveInfo] = useState(false);
+  const [showImport,   setShowImport]   = useState(false);
   const loadRef = useRef();
 
-  useEffect(()=>{ lsSave(stations); },[stations]);
+  useEffect(()=>{ lsSave(stations, lines); },[stations, lines]);
   const flash=(msg)=>{ setSaveMsg(msg); setTimeout(()=>setSaveMsg(""),2500); };
+
+  // Find which line a station belongs to (for lineName in PDF)
+  const stationLineName = (stationId) => {
+    const line = lines.find(l=>l.stationIds.includes(stationId));
+    return line?.name || "";
+  };
 
   const addStation=()=>{ const s=mkStation(); setStations(p=>[...p,s]); setActive(s.id); setTab("stations"); };
 
@@ -1513,22 +2245,41 @@ export default function App() {
           <span style={{background:TEAL,padding:"3px 10px",borderRadius:4,fontWeight:900,fontSize:16,letterSpacing:1}}>LVT</span>
           <span style={{fontWeight:700,fontSize:14}}>SOP Builder</span>
         </div>
-        {[{id:"stations",label:"📋 Stations & SOPs"},{id:"balance",label:"📊 Line Balance"}].map(t=>(
+        {[{id:"lines",label:"🏗️ Lines"},{id:"stations",label:"📋 Stations & SOPs"},{id:"balance",label:"📊 Line Balance"}].map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} style={{background:tab===t.id?"rgba(255,255,255,0.18)":"transparent",border:"none",borderBottom:tab===t.id?"3px solid white":"3px solid transparent",color:"white",padding:"0 14px",cursor:"pointer",fontSize:13,fontWeight:tab===t.id?700:400,alignSelf:"stretch"}}>{t.label}</button>
         ))}
         <div style={{flex:1}}/>
         <div style={{display:"flex",alignItems:"center",gap:5,padding:"8px 0"}}>
           {saveMsg&&<span style={{fontSize:11,color:"#a5d6a7",marginRight:4}}>{saveMsg}</span>}
-          <button onClick={()=>{lsSave(stations);setShowSaveInfo(true);}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>💾 Save</button>
-          <button onClick={()=>{saveFile(stations, stations.length===1?stations[0]:null);flash("✓ File downloaded");}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>⬇️ Export Save</button>
+          <button onClick={()=>{lsSave(stations,lines);setShowSaveInfo(true);}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>💾 Save</button>
+          <button onClick={()=>{
+  const lineName = lines.length===1
+    ? lines[0].name
+    : lines.length>1
+      ? lines.map(l=>l.name).filter(Boolean).join("_")
+      : null;
+  saveFile(stations,lines,stations.length===1?stations[0]:null,lineName);
+  flash("✓ File downloaded");
+}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>⬇️ Export Save</button>
+          <button onClick={()=>setShowImport(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📥 Import</button>
           <button onClick={()=>loadRef.current.click()} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📂 Load File</button>
-          <input ref={loadRef} type="file" accept=".json" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;loadFile(f,loaded=>{setStations(loaded);setActive(null);flash("✓ Loaded");});e.target.value="";}}/>
+          <input ref={loadRef} type="file" accept=".json" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;loadFile(f,loaded=>{setStations(loaded.stations);setLines(loaded.lines||[]);setActive(null);flash("✓ Loaded");});e.target.value="";}}/>
           <button onClick={()=>{exportCSV(stations);flash("✓ CSV downloaded");}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📊 CSV</button>
           <button onClick={()=>stations.forEach((s,i)=>setTimeout(()=>exportPDF(s),i*500))} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📄 All PDFs</button>
         </div>
       </div>
 
       <div style={{maxWidth:1080,margin:"0 auto",padding:"18px 14px"}}>
+        {tab==="lines" && (
+          <LinesManager
+            lines={lines}
+            stations={stations}
+            onLinesChange={setLines}
+            onStationsChange={setStations}
+            setActiveStation={id=>{setActive(id);}}
+            setTab={setTab}
+          />
+        )}
         {tab==="stations" && (<>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
             <div>
@@ -1550,7 +2301,7 @@ export default function App() {
               onSelect={()=>setActive(active===s.id?null:s.id)}
               onUpdate={updStation}
               onDelete={()=>delStation(s.id)}
-              onPreview={()=>setPreview(s)}
+              onPreview={()=>setPreview({...s,lineName:stationLineName(s.id)})}
               allStations={stations}
             />
           ))}
@@ -1563,6 +2314,16 @@ export default function App() {
       </div>
       {preview&&<SOPPreview station={preview} onClose={()=>setPreview(null)}/>}
       {showSaveInfo&&<SaveInfoModal onExport={()=>saveFile(stations)} onClose={()=>setShowSaveInfo(false)}/>}
+      {showImport&&<ImportWizard
+        currentStations={stations}
+        currentLines={lines}
+        onClose={()=>setShowImport(false)}
+        onImport={(newStations,newLines)=>{
+          setStations(newStations);
+          setLines(newLines);
+          flash("✓ Import complete");
+        }}
+      />}
     </div>
   );
 }
