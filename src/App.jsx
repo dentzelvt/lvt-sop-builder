@@ -712,6 +712,50 @@ function RichTextEditor({ value, onChange, placeholder, minRows=2 }) {
 }
 
 // ─── Lines Manager ────────────────────────────────────────────────────────────
+// ─── Add Existing Station Picker ─────────────────────────────────────────────
+function AddExistingStation({ available, assignedIds, onAdd }) {
+  const [selId, setSelId] = useState("");
+  const selected = available.find(s=>s.id===selId);
+
+  const doAdd = () => {
+    if(!selected) return;
+    onAdd(selected);
+    setSelId("");
+  };
+
+  return (
+    <div style={{borderTop:"1px solid #e0e0e0",paddingTop:10,marginTop:8,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+      <label style={{fontSize:12,color:"#555",fontWeight:600,flexShrink:0}}>Add existing station:</label>
+      <select value={selId} onChange={e=>setSelId(e.target.value)}
+        style={{flex:1,minWidth:200,padding:"5px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12,background:"white"}}>
+        <option value="">— select a station —</option>
+        {available.map(s=>{
+          const inOtherLine = assignedIds.has(s.id);
+          return (
+            <option key={s.id} value={s.id}>
+              {s.stationNo||s.sopId||"Station"}{s.stationDesc?" — "+s.stationDesc:""}
+              {inOtherLine?" (in another line)":""}
+            </option>
+          );
+        })}
+      </select>
+      {/* Preview of selected station */}
+      {selected && (
+        <span style={{fontSize:11,color:"#555",background:"#f5f5f5",padding:"3px 8px",borderRadius:4,border:"1px solid #e0e0e0",flexShrink:0}}>
+          {selected.tasks.length} task(s) · {fmtTime(sumTasks(selected.tasks))}
+          {assignedIds.has(selected.id) && <span style={{color:"#ff6f00",marginLeft:6}}>⚠ in another line</span>}
+        </span>
+      )}
+      <button onClick={doAdd} disabled={!selected}
+        style={{padding:"5px 14px",background:selected?TEAL:"#e0e0e0",color:selected?"white":"#aaa",
+                border:"none",borderRadius:5,cursor:selected?"pointer":"not-allowed",
+                fontSize:12,fontWeight:700,flexShrink:0,transition:"background 0.15s"}}>
+        + Add
+      </button>
+    </div>
+  );
+}
+
 function LinesManager({ lines, stations, onLinesChange, onStationsChange, updStation, preview, setPreview }) {
   const [activeLineId,    setActiveLineId]    = useState(null);
   const [activeStationId, setActiveStationId] = useState(null);
@@ -900,35 +944,23 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                     </div>
                   ))}
 
-                  {/* Add existing unassigned stations */}
+                  {/* Add existing station — compact dropdown */}
                   {stations.filter(s=>!line.stationIds.includes(s.id)).length>0 && (
-                    <div style={{borderTop:"1px solid #e0e0e0",paddingTop:10,marginTop:8}}>
-                      <div style={{fontWeight:600,fontSize:12,color:"#555",marginBottom:6}}>
-                        Add an existing station to this line:
-                      </div>
-                      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                        {stations.filter(s=>!line.stationIds.includes(s.id)).map(s=>(
-                          <button key={s.id}
-                            onClick={()=>{
-                              const newIds=[...line.stationIds,s.id];
-                              updLine({...line,stationIds:newIds});
-                              if(line.stationIdentifier){
-                                const pos=newIds.length;
-                                const newNo=autoStationNo(line.stationIdentifier,pos);
-                                const newSopId=genSopId(newNo,s.asmVersion,s.sopRev);
-                                const tasks=s.tasks.map(t=>({...t,taskId:genTaskId(newSopId,t.taskNo)}));
-                                onStationsChange(prev=>prev.map(st=>st.id===s.id?{...st,stationNo:newNo,sopId:newSopId,tasks}:st));
-                              }
-                            }}
-                            style={{padding:"4px 10px",fontSize:11,background:"#e8f5e9",border:"1px solid #a5d6a7",
-                                    borderRadius:4,cursor:"pointer",color:"#2e7d32"}}>
-                            + {s.stationNo||s.sopId||"Station"}{s.stationDesc?" — "+s.stationDesc:""}
-                            {assignedIds.has(s.id)&&!line.stationIds.includes(s.id)?
-                              <span style={{color:"#ff6f00",marginLeft:4,fontSize:10}}>(in another line)</span>:""}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    <AddExistingStation
+                      available={stations.filter(s=>!line.stationIds.includes(s.id))}
+                      assignedIds={assignedIds}
+                      onAdd={(s)=>{
+                        const newIds=[...line.stationIds,s.id];
+                        updLine({...line,stationIds:newIds});
+                        if(line.stationIdentifier){
+                          const pos=newIds.length;
+                          const newNo=autoStationNo(line.stationIdentifier,pos);
+                          const newSopId=genSopId(newNo,s.asmVersion,s.sopRev);
+                          const tasks=s.tasks.map(t=>({...t,taskId:genTaskId(newSopId,t.taskNo)}));
+                          onStationsChange(prev=>prev.map(st=>st.id===s.id?{...st,stationNo:newNo,sopId:newSopId,tasks}:st));
+                        }
+                      }}
+                    />
                   )}
                 </div>
               </div>
