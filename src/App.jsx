@@ -2692,10 +2692,7 @@ export default function App() {
         <div style={{flex:1}}/>
         <div style={{display:"flex",alignItems:"center",gap:5,padding:"8px 0"}}>
           {saveMsg&&<span style={{fontSize:11,color:"#a5d6a7",marginRight:4}}>{saveMsg}</span>}
-          <button onClick={()=>{
-            const base=window.location.origin+window.location.pathname.replace(/\/[^/]*$/,"/");
-            window.open(base+"user-guide.html","_blank","noopener");
-          }} title="Open User Guide"
+          <button onClick={()=>window.open("https://docs.google.com/document/d/14zoLpqjsYoPmk_y7v4TdVC9erP5eRKprid89Ilt28PA/edit?usp=sharing","_blank","noopener")} title="Open User Guide"
             style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white",display:"flex",alignItems:"center",gap:5}}>
             ❓ Help
           </button>
