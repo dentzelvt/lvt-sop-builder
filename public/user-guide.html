@@ -123,10 +123,10 @@
     <h3>Top Bar Actions</h3>
     <table>
       <tr><th>Button</th><th>Action</th></tr>
-      <tr><td><code>💾 Save</code></td><td>If a file is open: writes back to it instantly. Otherwise: saves to browser localStorage and shows a save info popup.</td></tr>
-      <tr><td><code>⬇️ Export Save</code></td><td>Download a portable .json file — choose All Lines or a Single Line. Opens a Save As dialog on Chrome/Edge.</td></tr>
+      <tr><td><code>💾 Save</code></td><td>Smart save — writes back to the currently open file silently, or opens a Save As dialog on first use. Always saves both a <code>.json</code> and a <code>.csv</code> backup.</td></tr>
+      <tr><td><code>⬇️ Export Save</code></td><td>Create a new dated snapshot — choose All Lines or a Single Line. Opens a Save As dialog on Chrome/Edge.</td></tr>
       <tr><td><code>📥 Import</code></td><td>Selectively import stations, tasks, or steps from a saved file without replacing your current project.</td></tr>
-      <tr><td><code>📂 Open File</code></td><td>Open a saved .json file as a working file — subsequent saves write back to it directly.</td></tr>
+      <tr><td><code>📂 Open File</code></td><td>Open a saved <code>.json</code> as a working file — subsequent saves write back to it directly.</td></tr>
       <tr><td><code>📄 All PDFs</code></td><td>Export PDFs for every station in the project.</td></tr>
       <tr><td><code>❓ Help</code></td><td>Open this user guide.</td></tr>
     </table>
@@ -307,7 +307,7 @@
   <div class="section" id="saving">
     <h2>8. Saving &amp; Loading</h2>
 
-    <p>The SOP Builder offers three ways to save your work, from fully automatic to fully manual. Understanding the difference helps you choose the right approach for your situation.</p>
+    <p>The SOP Builder offers three save methods. Every 💾 Save — at any level — automatically writes <strong>two files</strong>: a <code>.json</code> project file and a <code>.csv</code> backup, both with the same base name in the same folder.</p>
 
     <!-- Recommended workflow callout -->
     <div style="background:linear-gradient(135deg,#00695c,#00897b);color:white;border-radius:10px;padding:20px 24px;margin:16px 0 24px;">
@@ -316,61 +316,102 @@
         <li>Store your <code style="background:rgba(255,255,255,0.15);border:none;color:white;">.json</code> project file in a shared folder — Google Drive, OneDrive, SharePoint, or a network drive</li>
         <li>Click <strong>📂 Open File</strong> and navigate to that file</li>
         <li>Work normally — edit lines, stations, tasks, steps</li>
-        <li>Click <strong>💾 Save</strong> to write changes back to the same file instantly — no dialogs, no new copies</li>
+        <li>Click <strong>💾 Save</strong> — writes both the <code>.json</code> and <code>.csv</code> back to the same location silently</li>
         <li>Team members open the same file from the shared folder to pick up where you left off</li>
       </ol>
     </div>
 
-    <h3>Method 1 — Open File Mode (Recommended)</h3>
-    <p>This is the closest the app gets to a traditional "editable file" experience — open a file once, save back to it as many times as you want.</p>
-    <ol>
-      <li>Click <strong>📂 Open File</strong> in the top nav bar.</li>
-      <li>Navigate to your <code>.json</code> file — on your desktop, a mapped network drive, or your Google Drive / OneDrive sync folder.</li>
-      <li>The filename appears in the nav bar: <code>📄 Powder_Coat_2026-06-16.json ✕</code></li>
-      <li>Make your changes.</li>
-      <li>Click <strong>💾 Save</strong> — it writes directly back to that file, no dialog. You'll see <em>✓ Saved → filename.json</em> flash in the nav.</li>
-    </ol>
+    <h3>The Two Files — JSON and CSV</h3>
+    <p>Every save produces two files with the same base name:</p>
+    <table>
+      <tr><th>File</th><th>Purpose</th><th>Can be opened with</th></tr>
+      <tr>
+        <td><code>Powder_Coat_2026-06-17.json</code></td>
+        <td>Full project file — loads back into the SOP Builder with all data, images, structure, and settings intact</td>
+        <td>SOP Builder (📂 Open File)</td>
+      </tr>
+      <tr>
+        <td><code>Powder_Coat_2026-06-17.csv</code></td>
+        <td>Human-readable backup — every station, task, step, cycle time, safety icons, key points, and drawings in a flat spreadsheet. Readable without the app.</td>
+        <td>Excel, Google Sheets, any spreadsheet app</td>
+      </tr>
+    </table>
     <div class="tip">
-      <strong>Works with Google Drive, OneDrive, SharePoint:</strong> As long as you use their desktop sync app (Google Drive for Desktop, OneDrive sync), the files appear as a regular folder on your computer. Open the file from there and Save writes back to the cloud automatically on next sync.
-    </div>
-    <div class="tip">
-      <strong>To close the file connection:</strong> Click the <strong>✕</strong> next to the filename in the nav bar. This returns to manual save mode — your data is still in the browser, just no longer linked to a file.
-    </div>
-    <div class="tip">
-      <strong>Not simultaneous editing:</strong> One person at a time should have the file open. If two people edit and save simultaneously, one will overwrite the other's changes — treat it like a shared Excel file.
+      <strong>Why two files?</strong> The <code>.json</code> is the working file — it contains everything including images. The <code>.csv</code> is your insurance policy — if the app were ever unavailable, all your SOP content is readable in a spreadsheet. Future versions of the app will support importing from CSV.
     </div>
 
-    <h3>Method 2 — Export Save (Portable Backup)</h3>
-    <p>Creates a new <code>.json</code> file with a date-stamped name. Use this for backups, snapshots, or distributing a copy.</p>
+    <h3>Method 1 — Open File Mode (Recommended)</h3>
+    <p>Open a file once, save back to it as many times as you want — just like a traditional desktop app.</p>
+    <ol>
+      <li>Click <strong>📂 Open File</strong> in the top nav bar.</li>
+      <li>Navigate to your <code>.json</code> file — desktop, network drive, or Google Drive / OneDrive sync folder.</li>
+      <li>The filename appears in the nav bar: <code>📄 Powder_Coat_2026-06-17.json ✕</code></li>
+      <li>Make your changes.</li>
+      <li>Click <strong>💾 Save</strong> — writes both <code>.json</code> and <code>.csv</code> silently. Confirmation flashes: <em>✓ Saved → Powder_Coat_2026-06-17.json + .csv</em></li>
+    </ol>
+
+    <h3>First Save — What to Expect</h3>
+    <p>The very first time you save after opening the app (or after clicking ✕ to close a file connection), two dialogs appear in sequence:</p>
+    <ol>
+      <li><strong>Save As — JSON:</strong> Choose a folder and confirm the filename (e.g. <code>Powder_Coat_2026-06-17.json</code>)</li>
+      <li><strong>Save As — CSV:</strong> Immediately after, a second dialog opens pre-filled with the same base name as <code>.csv</code> — navigate to the same folder and click Save</li>
+    </ol>
+    <p>After that, both files update silently on every subsequent 💾 Save — no more dialogs until you close the connection.</p>
+    <div class="tip">
+      <strong>Works with Google Drive, OneDrive, SharePoint:</strong> Use their desktop sync app (Google Drive for Desktop, OneDrive sync) so files appear as a regular folder. Save writes back to the synced folder, which uploads to the cloud automatically.
+    </div>
+    <div class="tip">
+      <strong>Not simultaneous editing:</strong> One person at a time should have the file open and be saving. Treat it like a shared Excel file — coordinate with your team on who is editing.
+    </div>
+    <div class="tip">
+      <strong>To close the file connection:</strong> Click the <strong>✕</strong> next to the filename in the nav bar. Your data stays in the browser — you're just no longer linked to that file.
+    </div>
+
+    <h3>Save Scopes — Nav vs Line</h3>
+    <table>
+      <tr><th>Button</th><th>What's saved</th><th>Default filename</th></tr>
+      <tr>
+        <td>Nav <code>💾 Save</code></td>
+        <td>Everything — all lines and all stations</td>
+        <td><code>All_Lines_YYYY-MM-DD</code></td>
+      </tr>
+      <tr>
+        <td>Line <code>💾 Save</code> (on line header bar)</td>
+        <td>That line and its stations only</td>
+        <td><code>LineName_YYYY-MM-DD</code></td>
+      </tr>
+    </table>
+    <p>Each scope remembers its own file handle independently — you can have the full project linked to one file and a single line linked to a separate file at the same time.</p>
+
+    <h3>Method 2 — Export Save (Snapshots)</h3>
+    <p>Creates a new dated file — useful for version snapshots before major changes, or distributing a copy to someone else.</p>
     <p>Click <strong>⬇️ Export Save</strong> to open the export dialog:</p>
     <ul>
       <li><strong>All Lines</strong> → saves as <code>All_Lines_YYYY-MM-DD.json</code></li>
       <li><strong>Single Line</strong> → saves as <code>LineName_YYYY-MM-DD.json</code></li>
     </ul>
-    <p>On <strong>Chrome or Edge</strong> a Save As dialog lets you pick any folder. On other browsers the file goes to the default Downloads folder.</p>
-    <p>Per-line and per-station save buttons are also available directly on each line and station header bar.</p>
+    <p>On Chrome/Edge a Save As dialog lets you choose the folder. On other browsers the file goes to the default Downloads folder.</p>
 
-    <h3>Method 3 — Auto-Save (Safety Net)</h3>
-    <p>The app automatically saves to <strong>browser localStorage</strong> on every change. If you close the tab and reopen the app in the same browser on the same computer, your work is restored automatically.</p>
+    <h3>Method 3 — Auto-Save (Safety Net Only)</h3>
+    <p>The app automatically saves to <strong>browser localStorage</strong> on every change. Closing and reopening the tab restores your work automatically.</p>
     <div class="tip" style="border-left-color:#e53935;">
-      <strong style="color:#c62828;">⚠️ Do not rely on auto-save as your primary save.</strong> localStorage is wiped if you clear browser cache, use a different browser, or switch computers. Always use Open File Mode or Export Save for work you need to keep.
+      <strong style="color:#c62828;">⚠️ Do not rely on auto-save as your primary save.</strong> localStorage is wiped if you clear browser cache, use a different browser, or switch computers. Always use Open File Mode as your primary workflow.
     </div>
 
-    <h3>📂 Open File vs 📂 Load File — What's the difference?</h3>
+    <h3>📂 Open File vs Legacy Fallback</h3>
     <table>
-      <tr><th></th><th>📂 Open File</th><th style="opacity:0.7">Legacy: Load File fallback</th></tr>
-      <tr><td>Browser support</td><td>Chrome, Edge (full Save As)</td><td>All browsers</td></tr>
-      <tr><td>Save behavior</td><td>💾 Save writes back to same file silently</td><td>Manual Export Save required each time</td></tr>
+      <tr><th></th><th>📂 Open File (Chrome / Edge)</th><th>Legacy fallback (all browsers)</th></tr>
+      <tr><td>Save behavior</td><td>Writes back to same file silently</td><td>Downloads a new file each time</td></tr>
+      <tr><td>CSV backup</td><td>Written to same folder silently after first prompt</td><td>Downloaded to Downloads folder</td></tr>
       <tr><td>Creates new files?</td><td>No — edits in place</td><td>Yes — new file each export</td></tr>
       <tr><td>Works with shared drives?</td><td>Yes — via desktop sync folder</td><td>Yes — but manual copy back required</td></tr>
     </table>
-    <p style="font-size:13px;color:#888;">Note: On Firefox or Safari, <strong>📂 Open File</strong> falls back to the legacy file input automatically.</p>
 
     <h3>📥 Import Wizard (Selective)</h3>
-    <p>Click <strong>📥 Import</strong> to cherry-pick content from any save file — without replacing your current project. Useful for reusing stations across projects or merging work from multiple files.</p>
+    <p>Click <strong>📥 Import</strong> to cherry-pick content from any save file — without replacing your current project.</p>
     <ol>
       <li><strong>Pick file</strong> — supports both old format (stations only) and new format (lines + stations).</li>
-      <li><strong>Select items</strong> — check individual stations, tasks, or steps in a tree view. Use Select All or pick individually. Stations whose parent station is selected include all tasks automatically.</li>
+      <li><strong>Select items</strong> — check individual stations, tasks, or steps in a tree view. Selecting a full station includes all its tasks and steps automatically.</li>
       <li><strong>Assign destinations</strong> — choose which line to add imported stations to. Assign orphan tasks/steps to existing stations and tasks.</li>
     </ol>
     <p>Imported items receive new IDs so they never conflict with existing content.</p>
@@ -386,9 +427,11 @@
     </ul>
     <h3>Saving</h3>
     <ul>
-      <li><strong>Use Open File Mode as your primary way of working.</strong> Store the <code>.json</code> file in Google Drive or a network folder, open it at the start of each session, and hit 💾 Save regularly — just like any other app.</li>
-      <li>Use <strong>⬇️ Export Save</strong> to create dated snapshots before major changes — a quick backup before restructuring a line or creating a new revision.</li>
-      <li>Never rely on browser auto-save as your only copy. It disappears with a cache clear.</li>
+      <li><strong>Use Open File Mode as your primary workflow.</strong> Store the <code>.json</code> in Google Drive or a network folder, open it at the start of each session, and hit 💾 Save regularly — just like any other app. The <code>.csv</code> backup writes automatically every time.</li>
+      <li><strong>On your first save</strong>, two dialogs open in sequence — one for the JSON and one for the CSV. Navigate both to the same folder so they stay together.</li>
+      <li>Use <strong>⬇️ Export Save</strong> to create dated snapshots before major restructuring or before creating a new revision.</li>
+      <li>Never rely on browser auto-save as your only copy — it disappears with a cache clear.</li>
+      <li>Each save scope (nav vs line) remembers its own file independently. You can have the full project and a single line each linked to different files simultaneously.</li>
     </ul>
     <h3>Revisions</h3>
     <ul>
