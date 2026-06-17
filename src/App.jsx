@@ -805,21 +805,20 @@ function RefDropdown({ label, options, selected, onChange, compact=false }) {
 }
 
 // ─── Auto-Expanding Textarea ─────────────────────────────────────────────────
-function AutoTextarea({ value, onChange, placeholder, minRows=2, style={} }) {
-  const ref = useRef();
+const AutoTextarea = React.forwardRef(function AutoTextarea({ value, onChange, placeholder, minRows=2, style={} }, ref) {
+  const innerRef = useRef();
+  const resolvedRef = ref || innerRef;
   useEffect(() => {
-    if(ref.current){
-      ref.current.style.height = "auto";
-      ref.current.style.height = ref.current.scrollHeight + "px";
-    }
+    const el = resolvedRef.current;
+    if(el){ el.style.height="auto"; el.style.height=el.scrollHeight+"px"; }
   }, [value]);
   return (
-    <textarea ref={ref} value={value} onChange={onChange} placeholder={placeholder} rows={minRows}
+    <textarea ref={resolvedRef} value={value} onChange={onChange} placeholder={placeholder} rows={minRows}
       style={{width:"100%",padding:"5px 7px",border:"1px solid #ccc",borderRadius:4,
               fontSize:12,resize:"vertical",overflow:"hidden",minHeight:`${minRows*1.6}em`,...style}}
     />
   );
-}
+});
 
 // ─── Rich Text Editor ─────────────────────────────────────────────────────────
 // Wraps a textarea with Bold/Italic toolbar buttons. Text is stored as plain
@@ -1302,10 +1301,11 @@ function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allSta
           <button onClick={onDelete} style={{padding:"2px 8px",fontSize:12,background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:4,cursor:"pointer",color:"#c62828"}}>✕</button>
         </div>
       </div>
-      <textarea value={step.description} onChange={e=>u("description",e.target.value)} placeholder="Step description…" rows={2}
-        style={{width:"100%",padding:"5px 7px",border:"1px solid #ccc",borderRadius:4,fontSize:12,resize:"vertical",cursor:"text"}}/>
-      <textarea value={step.keyPoints} onChange={e=>u("keyPoints",e.target.value)} placeholder="NOTE / Key point (optional)" rows={1}
-        style={{width:"100%",padding:"5px 7px",border:"1px solid #ddd",borderRadius:4,fontSize:11,resize:"vertical",marginTop:3,background:"#fffde7",cursor:"text"}}/>
+      <RichTextEditor value={step.description||""} onChange={e=>u("description",e.target.value)}
+        placeholder="Step description… (select text then B or I to format)" minRows={2}/>
+      <AutoTextarea value={step.keyPoints||""} onChange={e=>u("keyPoints",e.target.value)}
+        placeholder="NOTE / Key point (optional)" minRows={1}
+        style={{marginTop:3,background:"#fffde7",fontSize:11}}/>
       {/* Step-level tool & drawing selectors */}
       {(stationToolList&&stationToolList.length>0||stationDrawings&&stationDrawings.filter(d=>d.drawingNo||d.description).length>0) && (
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:6}}>
@@ -1358,7 +1358,10 @@ function InsertStepBtn({ onInsert }) {
 
 // ─── Task Editor ──────────────────────────────────────────────────────────────
 function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStationId, onMoveTask, stationToolList, stationDrawings }) {
-  const [showNums, setShowNums] = useState(true);
+  // Derive showNums from actual step data — if any step has useStepNumber:false, treat as off
+  const [showNums, setShowNums] = useState(
+    () => task.steps.length === 0 || task.steps.some(s => s.useStepNumber !== false)
+  );
   const [collapsed, setCollapsed] = useState(false);
   const [showMoveTask, setShowMoveTask] = useState(false);
   const u=(f,v)=>onUpdate({...task,[f]:v});
@@ -1462,7 +1465,12 @@ function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStat
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <span style={{fontWeight:600,fontSize:12,color:TEAL_DARK}}>Steps ({task.steps.length})</span>
               <label style={{fontSize:11,display:"flex",alignItems:"center",gap:4,cursor:"pointer"}}>
-                <input type="checkbox" checked={showNums} onChange={e=>setShowNums(e.target.checked)}/> Step Numbers
+                <input type="checkbox" checked={showNums} onChange={e=>{
+                  const val = e.target.checked;
+                  setShowNums(val);
+                  // Persist to each step so PDF respects the setting
+                  u("steps", task.steps.map(s => ({...s, useStepNumber: val})));
+                }}/> Step Numbers
               </label>
             </div>
 
