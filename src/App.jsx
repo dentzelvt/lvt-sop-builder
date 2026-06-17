@@ -168,6 +168,80 @@ const writeToHandle = async (handle, stations, lines) => {
   }
 };
 
+// smartSave — unified save function used by nav and line buttons.
+// If a handle exists → write back silently. Otherwise → Save As dialog.
+// Always writes a .csv backup alongside the .json.
+const smartSave = async (stations, lines, defaultName, handle, onHandleChange, onFlash) => {
+  const baseName = defaultName.replace(/\.json$/i,"");
+
+  if(handle) {
+    const ok = await writeToHandle(handle, stations, lines);
+    if(ok) {
+      // Write CSV silently alongside — same folder, same base name
+      const csv = buildCSV(stations);
+      try {
+        // Re-use stored csv handle if available, else silent fallback download
+        if(handle._csvHandle) {
+          const w = await handle._csvHandle.createWritable();
+          await w.write(csv); await w.close();
+        } else {
+          const a=document.createElement("a");
+          a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8;"}));
+          a.download=`${baseName}.csv`; a.click();
+        }
+      } catch(e){ console.warn("CSV backup write failed",e); }
+      onFlash(`✓ Saved → ${handle.name || baseName}.json + .csv`);
+      return;
+    }
+    // Handle invalid — clear and fall through to picker
+    onHandleChange(null, "");
+  }
+
+  // No handle — open Save As dialog for JSON
+  if(window.showSaveFilePicker) {
+    try {
+      const newHandle = await window.showSaveFilePicker({
+        suggestedName: `${baseName}.json`,
+        types:[{description:"SOP Builder Save File",accept:{"application/json":[".json"]}}],
+      });
+      const json = JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines},null,2);
+      const writable = await newHandle.createWritable();
+      await writable.write(json); await writable.close();
+
+      // Now prompt for CSV in the same session — suggest same name with .csv
+      let csvHandle = null;
+      try {
+        csvHandle = await window.showSaveFilePicker({
+          suggestedName: `${baseName}.csv`,
+          types:[{description:"CSV Backup",accept:{"text/csv":[".csv"]}}],
+        });
+        const csv = buildCSV(stations);
+        const cw = await csvHandle.createWritable();
+        await cw.write(csv); await cw.close();
+        // Attach csv handle to json handle for future silent writes
+        newHandle._csvHandle = csvHandle;
+      } catch(e){ if(e.name!=="AbortError") console.warn("CSV save skipped",e); }
+
+      onHandleChange(newHandle, newHandle.name);
+      onFlash(`✓ Saved → ${newHandle.name}${csvHandle?" + .csv":""}`);
+      return;
+    } catch(e) { if(e.name==="AbortError") return; }
+  }
+
+  // Fallback: plain downloads for both
+  const json = JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines},null,2);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([json],{type:"application/json"}));
+  a.download = `${baseName}.json`; a.click();
+  setTimeout(()=>{
+    const csv = buildCSV(stations);
+    const b = document.createElement("a");
+    b.href = URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8;"}));
+    b.download = `${baseName}.csv`; b.click();
+  }, 500);
+  onFlash(`✓ Downloaded: ${baseName}.json + .csv`);
+};
+
 const loadFile = (file,cb) => {
   const r=new FileReader();
   r.onload=e=>{ try{ const d=JSON.parse(e.target.result); if(d.stations) cb({stations:d.stations.map(migrateStation),lines:d.lines||[]}); else alert("Invalid save file."); }catch{ alert("Could not read file."); } };
@@ -175,17 +249,55 @@ const loadFile = (file,cb) => {
 };
 
 // ─── CSV Export ───────────────────────────────────────────────────────────────
-const exportCSV = (stations) => {
+// Build CSV string from stations (no download — pure data)
+const buildCSV = (stations) => {
   const rows=[["SOP ID","Station No","Station Desc","Task No","Task ID","Task Description","Step No","Step Description","Key Points","Safety Icon","Cycle Time (min)"]];
   stations.forEach(s=>s.tasks.forEach(t=>{
     if(!t.steps.length){ rows.push([s.sopId,s.stationNo,s.stationDesc||"",t.taskNo,t.taskId,t.description,"","","","",""]); return; }
     t.steps.forEach((st,si)=>rows.push([s.sopId,s.stationNo,s.stationDesc||"",t.taskNo,t.taskId,t.description,
       st.stepNumber||si+1,st.description,st.keyPoints,(st.icons||[st.icon]).filter(i=>i&&i!=="none").map(i=>ICONS[i]?.label||i).join("; "),parseFloat(st.cycleTime)||0]));
   }));
-  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\r\n");
+  return rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\r\n");
+};
+
+// exportCSV — manual download from Line Balance tab
+const exportCSV = (stations) => {
+  const csv = buildCSV(stations);
   const a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8;"}));
   a.download="sop_data.csv"; a.click();
+};
+
+// Write CSV alongside a JSON save — same base name, .csv extension
+const writeCSVAlongside = async (jsonHandle, stations, baseName) => {
+  try {
+    const csv = buildCSV(stations);
+    // Try File System Access: get parent directory, create/overwrite .csv file there
+    if(jsonHandle && jsonHandle.kind === "file") {
+      try {
+        // getParentDirectory is not universally available yet — use showSaveFilePicker
+        // as a one-time prompt the first time, then the handle is stored.
+        // Simpler reliable approach: write via a separate showSaveFilePicker only on
+        // the very first save, store the csv handle alongside the json handle.
+        // For now: attempt a direct sibling write via the OPFS workaround,
+        // fall back gracefully to a plain download if not supported.
+        const csvHandle = await window.showSaveFilePicker({
+          suggestedName: `${baseName}.csv`,
+          types:[{description:"CSV Backup",accept:{"text/csv":[".csv"]}}],
+          // startIn: jsonHandle  <-- not supported yet in all browsers
+        }).catch(()=>null);
+        if(csvHandle) {
+          const w = await csvHandle.createWritable();
+          await w.write(csv); await w.close();
+          return;
+        }
+      } catch{}
+    }
+    // Fallback: silent background download
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8;"}));
+    a.download=`${baseName}.csv`; a.click();
+  } catch(e){ console.warn("CSV backup failed",e); }
 };
 
 // ─── Print HTML ────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -803,7 +915,7 @@ function AddExistingStation({ available, assignedIds, onAdd }) {
   );
 }
 
-function LinesManager({ lines, stations, onLinesChange, onStationsChange, updStation, preview, setPreview }) {
+function LinesManager({ lines, stations, onLinesChange, onStationsChange, updStation, preview, setPreview, stationHandles, setStationHandle, lineHandles, setLineHandle, flash }) {
   const [activeLineId,    setActiveLineId]    = useState(null);
   const [activeStationId, setActiveStationId] = useState(null);
 
@@ -876,11 +988,14 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                   style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isLineOpen?"white":"#333"}}>
                   + Station
                 </button>
-                <button onClick={()=>{
-                  const ls=lineStations;
-                  const name=(line.name||"Line").replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_");
-                  saveFile(ls,[line],null,null,`${name}_${new Date().toISOString().slice(0,10)}`);
-                }} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isLineOpen?"white":"#333"}}>
+                <button onClick={async(e)=>{e.stopPropagation();
+                  const lh = lineHandles[line.id];
+                  const name=(line.name||"Line").replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_")+`_${new Date().toISOString().slice(0,10)}`;
+                  await smartSave(lineStations,[line],name,lh?.handle||null,(h,n)=>setLineHandle(line.id,h,n),flash);
+                }} style={{background:lineHandles[line.id]?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.2)",
+                           border:lineHandles[line.id]?"2px solid #a5d6a7":"1px solid rgba(255,255,255,0.5)",
+                           borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,
+                           color:isLineOpen?"white":"#333",fontWeight:lineHandles[line.id]?700:400}}>
                   💾 Save
                 </button>
                 <button onClick={()=>lineStations.forEach((s,i)=>setTimeout(()=>exportPDF({...s,lineName:line.name}),i*500))}
@@ -1000,6 +1115,11 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                         allStations={stations}
                         lineName={line.name}
                         stationIdentifier={line.stationIdentifier||""}
+                        stationHandle={stationHandles[s.id]?.handle||null}
+                        onStationHandle={(h,n,msg)=>{
+                          setStationHandle(s.id,h,n);
+                          if(msg) flash(msg);
+                        }}
                       />
                     </div>
                   ))}
@@ -1649,7 +1769,7 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
 }
 
 // ─── Station Editor ───────────────────────────────────────────────────────────
-function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPreview, allStations, lineName="", stationIdentifier="" }) {
+function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPreview, allStations, lineName="", stationIdentifier="", stationHandle=null, onStationHandle=null }) {
   const u=(f,v)=>{
     const upd={...station,[f]:v};
     if(["stationNo","asmVersion","sopRev"].includes(f)){
@@ -1702,10 +1822,7 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
         <div style={{display:"flex",gap:6,flexShrink:0}}>
           <button onClick={e=>{e.stopPropagation();onPreview();}} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>👁 Preview</button>
           <button onClick={e=>{e.stopPropagation();exportPDF({...station,lineName});}} style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>📄 PDF</button>
-          <button onClick={e=>{e.stopPropagation();
-            const name=[station.sopId,station.stationDesc].filter(Boolean).join("_").replace(/[^a-zA-Z0-9_\-]/g,"_")||"SOP";
-            saveFile([station],[],null,null,name);
-          }} title="Save this SOP to a file" style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isActive?"white":"#333"}}>💾 Save</button>
+
           <button onClick={e=>{e.stopPropagation();onDelete();}} style={{background:"rgba(200,0,0,0.12)",border:"1px solid rgba(200,0,0,0.25)",borderRadius:4,padding:"3px 8px",cursor:"pointer",color:"#c62828",fontSize:12}}>✕</button>
         </div>
       </div>
@@ -2664,9 +2781,15 @@ export default function App() {
   const [showSaveInfo,   setShowSaveInfo]   = useState(false);
   const [showImport,     setShowImport]     = useState(false);
   const [showExportSave, setShowExportSave] = useState(false);
-  const [activeFileHandle, setActiveFileHandle] = useState(null); // File System Access handle
-  const [activeFileName,   setActiveFileName]   = useState("");   // display name
+  const [activeFileHandle, setActiveFileHandle] = useState(null); // global (All Lines) handle
+  const [activeFileName,   setActiveFileName]   = useState("");
+  const [lineHandles,      setLineHandles]      = useState({});   // lineId → {handle, name}
+  const [stationHandles,   setStationHandles]   = useState({});   // stationId → {handle, name}
   const loadRef = useRef();
+
+  // Helpers for setting per-scope handles
+  const setLineHandle   = (lineId, handle, name) => setLineHandles(p=>handle?{...p,[lineId]:{handle,name}}:Object.fromEntries(Object.entries(p).filter(([k])=>k!==lineId)));
+  const setStationHandle= (stationId, handle, name) => setStationHandles(p=>handle?{...p,[stationId]:{handle,name}}:Object.fromEntries(Object.entries(p).filter(([k])=>k!==stationId)));
 
   useEffect(()=>{ lsSave(stations, lines); },[stations, lines]);
   const flash=(msg)=>{ setSaveMsg(msg); setTimeout(()=>setSaveMsg(""),2500); };
@@ -2740,15 +2863,21 @@ export default function App() {
           </button>
           <button onClick={async()=>{
             lsSave(stations,lines);
-            if(activeFileHandle){
-              const ok = await writeToHandle(activeFileHandle,stations,lines);
-              if(ok){ flash(`✓ Saved → ${activeFileName}`); return; }
-              // Handle became invalid — clear it and fall through to info modal
-              setActiveFileHandle(null); setActiveFileName("");
+            if(activeFileHandle || window.showSaveFilePicker) {
+              await smartSave(stations, lines,
+                `All_Lines_${new Date().toISOString().slice(0,10)}`,
+                activeFileHandle,
+                (h,n)=>{ setActiveFileHandle(h); setActiveFileName(n||""); },
+                flash
+              );
+            } else {
+              setShowSaveInfo(true);
             }
-            setShowSaveInfo(true);
-          }} style={{background:activeFileHandle?"#00897b":"rgba(255,255,255,0.15)",border:activeFileHandle?"2px solid #a5d6a7":"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white",fontWeight:activeFileHandle?700:400}}>
-            {activeFileHandle?"💾 Save":"💾 Save"}
+          }} style={{background:activeFileHandle?"rgba(255,255,255,0.25)":"rgba(255,255,255,0.15)",
+                     border:activeFileHandle?"2px solid #a5d6a7":"1px solid rgba(255,255,255,0.35)",
+                     borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white",
+                     fontWeight:activeFileHandle?700:400}}>
+            💾 Save
           </button>
           <button onClick={()=>setShowExportSave(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>⬇️ Export Save</button>
           <button onClick={()=>setShowImport(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📥 Import</button>
@@ -2796,6 +2925,11 @@ export default function App() {
             updStation={updStation}
             preview={preview}
             setPreview={setPreview}
+            stationHandles={stationHandles}
+            setStationHandle={setStationHandle}
+            lineHandles={lineHandles}
+            setLineHandle={setLineHandle}
+            flash={flash}
           />
         )}
 
