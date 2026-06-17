@@ -874,7 +874,8 @@ function RichTextEditor({ value, onChange, placeholder, minRows=2 }) {
 // ─── Add Existing Station Picker ─────────────────────────────────────────────
 function AddExistingStation({ available, assignedIds, onAdd }) {
   const [selId, setSelId] = useState("");
-  const selected = available.find(s=>s.id===selId);
+  // IDs are numbers but select values are strings — coerce for comparison
+  const selected = available.find(s => String(s.id) === selId);
 
   const doAdd = () => {
     if(!selected) return;
@@ -891,7 +892,7 @@ function AddExistingStation({ available, assignedIds, onAdd }) {
         {available.map(s=>{
           const inOtherLine = assignedIds.has(s.id);
           return (
-            <option key={s.id} value={s.id}>
+            <option key={s.id} value={String(s.id)}>
               {s.stationNo||s.sopId||"Station"}{s.stationDesc?" — "+s.stationDesc:""}
               {inOtherLine?" (in another line)":""}
             </option>
