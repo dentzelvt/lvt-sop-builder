@@ -144,6 +144,30 @@ const saveFile = async (stations, lines=[], station=null, lineName=null, explici
   a.download = `${name}.json`;
   a.click();
 };
+// Write current project data back to an already-open file handle (no dialog)
+const writeToHandle = async (handle, stations, lines) => {
+  try {
+    const json = JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines},null,2);
+    const writable = await handle.createWritable();
+    await writable.write(json);
+    await writable.close();
+    return true;
+  } catch(e) {
+    if(e.name==="NotAllowedError") {
+      // Permission was revoked (e.g. page reload) — need to re-request
+      try {
+        await handle.requestPermission({mode:"readwrite"});
+        const writable = await handle.createWritable();
+        const json = JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines},null,2);
+        await writable.write(json);
+        await writable.close();
+        return true;
+      } catch { return false; }
+    }
+    return false;
+  }
+};
+
 const loadFile = (file,cb) => {
   const r=new FileReader();
   r.onload=e=>{ try{ const d=JSON.parse(e.target.result); if(d.stations) cb({stations:d.stations.map(migrateStation),lines:d.lines||[]}); else alert("Invalid save file."); }catch{ alert("Could not read file."); } };
@@ -2608,6 +2632,11 @@ function SaveInfoModal({ onExport, onClose }) {
             </ul>
           </div>
         </div>
+        <div style={{background:TEAL_LIGHT,borderRadius:8,padding:12,marginBottom:14,border:`1px solid #80cbc4`,fontSize:12,color:"#444"}}>
+          <strong style={{color:TEAL_DARK}}>💡 Tip — work directly on a file:</strong><br/>
+          Use <strong>📂 Open File</strong> to open a <code>.json</code> from anywhere (Google Drive sync folder, network drive, desktop).
+          After that, <strong>💾 Save</strong> writes back to that exact file automatically — no dialogs, no new copies.
+        </div>
         <div style={{display:"flex",gap:10}}>
           <button onClick={()=>{onExport();onClose();}}
             style={{flex:1,background:TEAL,color:"white",border:"none",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:700}}>
@@ -2635,6 +2664,8 @@ export default function App() {
   const [showSaveInfo,   setShowSaveInfo]   = useState(false);
   const [showImport,     setShowImport]     = useState(false);
   const [showExportSave, setShowExportSave] = useState(false);
+  const [activeFileHandle, setActiveFileHandle] = useState(null); // File System Access handle
+  const [activeFileName,   setActiveFileName]   = useState("");   // display name
   const loadRef = useRef();
 
   useEffect(()=>{ lsSave(stations, lines); },[stations, lines]);
@@ -2691,16 +2722,65 @@ export default function App() {
         ))}
         <div style={{flex:1}}/>
         <div style={{display:"flex",alignItems:"center",gap:5,padding:"8px 0"}}>
+          {activeFileName&&!saveMsg&&(
+            <span style={{fontSize:11,color:"#a5d6a7",marginRight:4,display:"flex",alignItems:"center",gap:4}}>
+              <span style={{opacity:0.7}}>📄</span>
+              <span style={{maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={activeFileName}>{activeFileName}</span>
+              <button onClick={()=>{setActiveFileHandle(null);setActiveFileName("");}} title="Close file (switch to manual save)"
+                style={{background:"none",border:"none",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:12,padding:"0 2px",lineHeight:1}}>✕</button>
+            </span>
+          )}
           {saveMsg&&<span style={{fontSize:11,color:"#a5d6a7",marginRight:4}}>{saveMsg}</span>}
-          <button onClick={()=>window.open("https://docs.google.com/document/d/14zoLpqjsYoPmk_y7v4TdVC9erP5eRKprid89Ilt28PA/edit?usp=sharing","_blank","noopener")} title="Open User Guide"
+          <button onClick={()=>{
+            const base=window.location.origin+window.location.pathname.replace(/\/[^/]*$/,"/");
+            window.open(base+"user-guide.html","_blank","noopener");
+          }} title="Open User Guide"
             style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white",display:"flex",alignItems:"center",gap:5}}>
             ❓ Help
           </button>
-          <button onClick={()=>{lsSave(stations,lines);setShowSaveInfo(true);}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>💾 Save</button>
+          <button onClick={async()=>{
+            lsSave(stations,lines);
+            if(activeFileHandle){
+              const ok = await writeToHandle(activeFileHandle,stations,lines);
+              if(ok){ flash(`✓ Saved → ${activeFileName}`); return; }
+              // Handle became invalid — clear it and fall through to info modal
+              setActiveFileHandle(null); setActiveFileName("");
+            }
+            setShowSaveInfo(true);
+          }} style={{background:activeFileHandle?"#00897b":"rgba(255,255,255,0.15)",border:activeFileHandle?"2px solid #a5d6a7":"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white",fontWeight:activeFileHandle?700:400}}>
+            {activeFileHandle?"💾 Save":"💾 Save"}
+          </button>
           <button onClick={()=>setShowExportSave(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>⬇️ Export Save</button>
           <button onClick={()=>setShowImport(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📥 Import</button>
-          <button onClick={()=>loadRef.current.click()} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📂 Load File</button>
-          <input ref={loadRef} type="file" accept=".json" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;loadFile(f,loaded=>{setStations(loaded.stations);setLines(loaded.lines||[]);setActive(null);flash("✓ Loaded");});e.target.value="";}}/>
+          <button onClick={async()=>{
+            // Use File System Access API if available
+            if(window.showOpenFilePicker){
+              try {
+                const [handle] = await window.showOpenFilePicker({
+                  types:[{description:"SOP Builder Save File",accept:{"application/json":[".json"]}}],
+                  multiple:false
+                });
+                const file = await handle.getFile();
+                // Verify write permission up front
+                const perm = await handle.queryPermission({mode:"readwrite"});
+                if(perm!=="granted") await handle.requestPermission({mode:"readwrite"});
+                loadFile(file, loaded=>{
+                  setStations(loaded.stations);
+                  setLines(loaded.lines||[]);
+                  setActive(null);
+                  setActiveFileHandle(handle);
+                  setActiveFileName(file.name);
+                  flash(`✓ Opened: ${file.name}`);
+                });
+                return;
+              } catch(e){
+                if(e.name==="AbortError") return; // user cancelled
+                // fall through to legacy input
+              }
+            }
+            loadRef.current.click();
+          }} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📂 Open File</button>
+          <input ref={loadRef} type="file" accept=".json" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;loadFile(f,loaded=>{setStations(loaded.stations);setLines(loaded.lines||[]);setActive(null);setActiveFileHandle(null);setActiveFileName("");flash("✓ Loaded");});e.target.value="";}}/>
           <button onClick={()=>{exportCSV(stations);flash("✓ CSV downloaded");}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📊 CSV</button>
           <button onClick={()=>stations.forEach((s,i)=>setTimeout(()=>exportPDF(s),i*500))} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📄 All PDFs</button>
         </div>

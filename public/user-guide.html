@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>LVT SOP Builder — User Guide</title>
+<style>
+  :root { --teal:#00897b; --teal-dark:#00695c; --teal-light:#e0f2f1; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family: Arial, sans-serif; font-size: 15px; color: #222; background: #f0f4f8; line-height: 1.7; }
+
+  /* ── Top bar ── */
+  .topbar {
+    background: var(--teal-dark); color: white;
+    padding: 12px 32px; display: flex; align-items: center;
+    justify-content: space-between; position: sticky; top: 0; z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+  .topbar .logo { background: var(--teal); padding: 3px 12px; border-radius: 4px; font-weight: 900; font-size: 17px; letter-spacing: 1px; margin-right: 12px; }
+  .topbar .title { font-weight: 700; font-size: 15px; }
+  .topbar a { color: rgba(255,255,255,0.8); text-decoration: none; font-size: 13px; }
+  .topbar a:hover { color: white; }
+
+  /* ── Layout ── */
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 80px; }
+
+  /* ── Table of contents ── */
+  .toc { background: white; border-radius: 10px; padding: 20px 24px; margin-bottom: 32px; border-left: 4px solid var(--teal); box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+  .toc h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--teal-dark); margin-bottom: 12px; }
+  .toc ol { padding-left: 20px; }
+  .toc li { margin-bottom: 5px; }
+  .toc a { color: var(--teal-dark); text-decoration: none; font-size: 14px; }
+  .toc a:hover { text-decoration: underline; }
+
+  /* ── Content cards ── */
+  .section { background: white; border-radius: 10px; padding: 28px 32px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
+  h1 { font-size: 26px; color: var(--teal-dark); margin-bottom: 6px; }
+  .subtitle { font-size: 14px; color: #888; margin-bottom: 0; }
+  h2 { font-size: 19px; color: var(--teal-dark); margin: 0 0 14px; padding-bottom: 8px; border-bottom: 2px solid var(--teal-light); }
+  h3 { font-size: 15px; color: #333; margin: 20px 0 8px; font-weight: 700; }
+  p { margin-bottom: 12px; color: #444; }
+  ul, ol { padding-left: 22px; margin-bottom: 12px; color: #444; }
+  li { margin-bottom: 5px; }
+  code { background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 3px; padding: 1px 5px; font-family: monospace; font-size: 13px; color: var(--teal-dark); }
+  strong { color: #222; }
+
+  /* ── Tables ── */
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 13px; }
+  th { background: var(--teal); color: white; padding: 8px 12px; text-align: left; font-weight: 600; }
+  td { padding: 7px 12px; border-bottom: 1px solid #eee; vertical-align: top; }
+  tr:nth-child(even) td { background: #fafafa; }
+
+  /* ── Tips box ── */
+  .tip { background: #fff8e1; border-left: 4px solid #ffc107; border-radius: 0 6px 6px 0; padding: 10px 16px; margin: 12px 0; font-size: 14px; color: #555; }
+  .tip strong { color: #e65100; }
+
+  /* ── Icon badge ── */
+  .icon-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+  .icon-badge { display: inline-flex; align-items: center; gap: 6px; background: var(--teal-light); border: 1px solid #80cbc4; border-radius: 20px; padding: 4px 12px; font-size: 13px; color: var(--teal-dark); }
+
+  /* ── Hierarchy diagram ── */
+  .hierarchy { display: flex; align-items: center; gap: 0; margin: 16px 0; flex-wrap: wrap; }
+  .hier-box { background: var(--teal); color: white; border-radius: 6px; padding: 8px 16px; font-weight: 700; font-size: 14px; text-align: center; }
+  .hier-arrow { color: #bbb; font-size: 20px; padding: 0 8px; }
+  .hier-sub { font-size: 11px; font-weight: 400; opacity: 0.85; display: block; }
+
+  /* ── Back to top ── */
+  .back-top { position: fixed; bottom: 28px; right: 28px; background: var(--teal); color: white; border: none; border-radius: 50%; width: 44px; height: 44px; font-size: 20px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; text-decoration: none; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div style="display:flex;align-items:center;gap:10px;">
+    <span class="logo">LVT</span>
+    <span class="title">SOP Builder — User Guide</span>
+  </div>
+  <a href="javascript:history.back()">← Back to App</a>
+</div>
+
+<div class="container">
+
+  <!-- Hero -->
+  <div class="section" style="background:linear-gradient(135deg,#00695c,#00897b);color:white;padding:36px 32px;">
+    <h1 style="color:white;font-size:30px;margin-bottom:8px;">LVT SOP Builder</h1>
+    <p class="subtitle" style="color:rgba(255,255,255,0.85);font-size:16px;margin:0;">Complete User Guide — Creating and Managing Standard Operating Procedures</p>
+  </div>
+
+  <!-- TOC -->
+  <div class="toc">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#overview">Overview & Navigation</a></li>
+      <li><a href="#lines">Lines</a></li>
+      <li><a href="#stations">Stations</a></li>
+      <li><a href="#tasks">Tasks</a></li>
+      <li><a href="#steps">Steps</a></li>
+      <li><a href="#preview">Preview & PDF Export</a></li>
+      <li><a href="#balance">Line Balance</a></li>
+      <li><a href="#saving">Saving & Loading</a></li>
+      <li><a href="#tips">Tips & Best Practices</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. Overview -->
+  <div class="section" id="overview">
+    <h2>1. Overview &amp; Navigation</h2>
+    <p>The LVT SOP Builder is a browser-based tool for creating, managing, and exporting Standard Operating Procedures for manufacturing operations. Content is organized in a four-level hierarchy:</p>
+    <div class="hierarchy">
+      <div class="hier-box">🏗️ Line<span class="hier-sub">Production Line</span></div>
+      <span class="hier-arrow">→</span>
+      <div class="hier-box">🏭 Station<span class="hier-sub">SOP Document</span></div>
+      <span class="hier-arrow">→</span>
+      <div class="hier-box">📋 Task<span class="hier-sub">Step Group</span></div>
+      <span class="hier-arrow">→</span>
+      <div class="hier-box">🔢 Step<span class="hier-sub">Instruction</span></div>
+    </div>
+    <h3>Top Navigation Tabs</h3>
+    <ul>
+      <li><strong>🏗️ Lines</strong> — Primary workspace. Create lines, build stations, author all SOP content.</li>
+      <li><strong>📊 Line Balance</strong> — Analyze and compare cycle times across stations or tasks.</li>
+    </ul>
+    <h3>Top Bar Actions</h3>
+    <table>
+      <tr><th>Button</th><th>Action</th></tr>
+      <tr><td><code>💾 Save</code></td><td>If a file is open: writes back to it instantly. Otherwise: saves to browser localStorage and shows a save info popup.</td></tr>
+      <tr><td><code>⬇️ Export Save</code></td><td>Download a portable .json file — choose All Lines or a Single Line. Opens a Save As dialog on Chrome/Edge.</td></tr>
+      <tr><td><code>📥 Import</code></td><td>Selectively import stations, tasks, or steps from a saved file without replacing your current project.</td></tr>
+      <tr><td><code>📂 Open File</code></td><td>Open a saved .json file as a working file — subsequent saves write back to it directly.</td></tr>
+      <tr><td><code>📄 All PDFs</code></td><td>Export PDFs for every station in the project.</td></tr>
+      <tr><td><code>❓ Help</code></td><td>Open this user guide.</td></tr>
+    </table>
+  </div>
+
+  <!-- 2. Lines -->
+  <div class="section" id="lines">
+    <h2>2. Lines</h2>
+    <p>A Line represents a production line and groups stations together in order. The Line Name appears in every SOP header.</p>
+    <h3>Creating a Line</h3>
+    <ol>
+      <li>Click <strong>+ New Line</strong>.</li>
+      <li>Enter a <strong>Line Name</strong> — e.g. <code>Powder Coat</code>. This appears in all SOP PDF headers.</li>
+      <li>Enter a <strong>Station Identifier</strong> — e.g. <code>PWD-WIP</code>. This becomes the prefix for all station numbers on this line.</li>
+      <li>Optionally add a Description.</li>
+    </ol>
+    <div class="tip"><strong>Auto-Numbering:</strong> Once a Station Identifier is set, every station added to the line receives an automatic Station No. — <code>PWD-WIP-01</code>, <code>PWD-WIP-02</code>, etc. Numbers reassign automatically when you reorder stations.</div>
+    <h3>Line Actions (header bar buttons)</h3>
+    <table>
+      <tr><th>Button</th><th>Action</th></tr>
+      <tr><td><code>+ Station</code></td><td>Create a new station and add it to this line</td></tr>
+      <tr><td><code>💾 Save</code></td><td>Export just this line as a .json file</td></tr>
+      <tr><td><code>📄 All PDFs</code></td><td>Export a PDF for every station in this line</td></tr>
+      <tr><td><code>✕</code></td><td>Delete the line (stations are not deleted, just unassigned)</td></tr>
+    </table>
+    <h3>Managing Stations in a Line</h3>
+    <ul>
+      <li>Drag the <strong>⠿</strong> handle to reorder stations. Station numbers update automatically.</li>
+      <li>Click <strong>Remove from line</strong> to detach a station without deleting it.</li>
+      <li>Use the <strong>Add existing station</strong> dropdown at the bottom to pull in a station that already exists in the project.</li>
+    </ul>
+  </div>
+
+  <!-- 3. Stations -->
+  <div class="section" id="stations">
+    <h2>3. Stations</h2>
+    <p>Each station represents one complete SOP document. Click a station header to expand it.</p>
+    <h3>Station Fields</h3>
+    <table>
+      <tr><th>Field</th><th>Description</th></tr>
+      <tr><td>Station No.</td><td>Auto-assigned from Line Identifier + position. Read-only when a Line Identifier is set.</td></tr>
+      <tr><td>Station Description</td><td>Short name — e.g. BATTERY, IR OVEN. Appears in the SOP header.</td></tr>
+      <tr><td>ASM Version</td><td>Assembly version number.</td></tr>
+      <tr><td>Revised By</td><td>Author name. Pre-populates revision log entries.</td></tr>
+      <tr><td>SOP Revision</td><td>Managed by the Revision Log — read-only here.</td></tr>
+      <tr><td>Generated SOP ID</td><td>Auto-generated — e.g. <code>PWD-WIP-02-V2.A</code>. Read-only.</td></tr>
+      <tr><td>Purpose</td><td>What this SOP covers.</td></tr>
+      <tr><td>Safety Summary</td><td>PPE and safety requirements.</td></tr>
+      <tr><td>Tools &amp; Equipment</td><td>Structured list — see below.</td></tr>
+      <tr><td>Revision Log</td><td>Automated revision history — see below.</td></tr>
+      <tr><td>General Notes</td><td>Task ordering notes and general information. Auto-expands as you type.</td></tr>
+      <tr><td>Applicable Drawings</td><td>Drawing number + description pairs. Used as dropdowns at task and step level.</td></tr>
+    </table>
+    <h3>Tools &amp; Equipment List</h3>
+    <ul>
+      <li>Click <strong>+ Add Tool</strong> to add one tool (Name + optional Part/Model #).</li>
+      <li>Click <strong>+ Add Multiple</strong> to bulk-add: one tool per line. Use a pipe for part numbers: <code>Battery Tester | BT-2000</code></li>
+    </ul>
+    <h3>Revision Log</h3>
+    <ul>
+      <li>Rev A — Initial Release is pre-seeded on every new station.</li>
+      <li>Click <strong>+ New Revision (B)</strong> to create a new revision. You'll be prompted for the revision letter (editable — can skip to C, or use AA), date, author, and a description of changes.</li>
+      <li>Every revision dialog shows a ⚠️ Windchill upload reminder.</li>
+      <li>Click ✏️ on any entry to edit it. Editing requires confirming a Windchill checkbox.</li>
+    </ul>
+    <h3>Station Actions</h3>
+    <table>
+      <tr><th>Button</th><th>Action</th></tr>
+      <tr><td><code>👁 Preview</code></td><td>Open full-page preview matching the PDF layout exactly</td></tr>
+      <tr><td><code>📄 PDF</code></td><td>Open browser print dialog for PDF export</td></tr>
+      <tr><td><code>💾 Save</code></td><td>Save just this station as <code>SOP_ID_Description.json</code></td></tr>
+    </table>
+  </div>
+
+  <!-- 4. Tasks -->
+  <div class="section" id="tasks">
+    <h2>4. Tasks</h2>
+    <p>Tasks group related steps within a station. Click <strong>+ Add Task</strong> at the bottom of any station.</p>
+    <h3>Task Fields</h3>
+    <table>
+      <tr><th>Field</th><th>Description</th></tr>
+      <tr><td>Task No.</td><td>Auto-numbered within the station.</td></tr>
+      <tr><td>Task ID</td><td>Auto-generated — e.g. <code>PWD-WIP-02.A-01</code>.</td></tr>
+      <tr><td>Task Description</td><td>All-caps description of the task.</td></tr>
+      <tr><td>General Notes</td><td>Task-level notes. Auto-expands as you type.</td></tr>
+      <tr><td>Est. Cycle Time</td><td>Auto-calculated sum of all step cycle times.</td></tr>
+      <tr><td>🔧 Tools Used</td><td>Multi-select dropdown from the station's tool list.</td></tr>
+      <tr><td>📐 Drawings</td><td>Multi-select dropdown from the station's drawings table.</td></tr>
+      <tr><td>Images</td><td>Upload one or more reference images.</td></tr>
+    </table>
+    <h3>Task Actions</h3>
+    <ul>
+      <li><strong>⠿</strong> Drag handle — reorder tasks within the station.</li>
+      <li><strong>↪ Move Task</strong> — move the entire task to a different station.</li>
+      <li><strong>▼ / ▶</strong> — collapse or expand the task.</li>
+      <li><strong>✕</strong> — delete the task.</li>
+    </ul>
+  </div>
+
+  <!-- 5. Steps -->
+  <div class="section" id="steps">
+    <h2>5. Steps</h2>
+    <p>Steps are individual instructions within a task. Click <strong>+ Add Step</strong>, or click the <strong>+</strong> button between existing steps to insert one at a specific position.</p>
+    <h3>Step Fields</h3>
+    <table>
+      <tr><th>Field</th><th>Description</th></tr>
+      <tr><td>Step Number</td><td>Optional. Toggle with "Step Numbers" checkbox. Editable.</td></tr>
+      <tr><td>Icons</td><td>Dropdown — select one or more safety/reference icons (hold Ctrl/Cmd for multiple).</td></tr>
+      <tr><td>Cycle Time</td><td>Time in minutes for this step. Rolls up to task total.</td></tr>
+      <tr><td>Description</td><td>Main step instruction. Supports bold and italic formatting.</td></tr>
+      <tr><td>Key Point / NOTE</td><td>Yellow-highlighted note line. Also supports bold/italic.</td></tr>
+      <tr><td>🔧 Tools</td><td>Multi-select from station tool list. Only shown if tools are defined.</td></tr>
+      <tr><td>📐 Drawings</td><td>Multi-select from station drawings. Only shown if drawings are defined.</td></tr>
+      <tr><td>Image</td><td>Upload a single reference image for this step.</td></tr>
+    </table>
+    <h3>Formatting Text</h3>
+    <p>Select text in the description field, then click <strong>B</strong> for bold or <strong>I</strong> for italic in the toolbar above the field. Formatting renders in both the preview and the PDF.</p>
+    <h3>Safety Icons</h3>
+    <div class="icon-row">
+      <span class="icon-badge">⚠️ Warning</span>
+      <span class="icon-badge">🔶 Caution</span>
+      <span class="icon-badge">📝 Note</span>
+      <span class="icon-badge">🦺 PPE Required</span>
+      <span class="icon-badge">⚡ Electrical</span>
+      <span class="icon-badge">🏋️ Heavy Lift</span>
+      <span class="icon-badge">🔍 Inspect</span>
+    </div>
+    <h3>Step Actions</h3>
+    <ul>
+      <li><strong>⠿</strong> Drag handle — reorder steps.</li>
+      <li><strong>↑ / ↓</strong> — move step up or down one position.</li>
+      <li><strong>↪ Move</strong> — move the step to any task in any station.</li>
+      <li><strong>✕</strong> — delete the step.</li>
+    </ul>
+  </div>
+
+  <!-- 6. Preview & PDF -->
+  <div class="section" id="preview">
+    <h2>6. Preview &amp; PDF Export</h2>
+    <h3>Preview</h3>
+    <p>Click <strong>👁 Preview</strong> on any station to open a full-screen view that renders the SOP exactly as it will print — white 8.5×11 pages on a dark background.</p>
+    <p>The preview includes:</p>
+    <ul>
+      <li><strong>Cover page</strong> — Purpose, Safety Summary, Applicable Drawings, Tools &amp; Equipment, Revision Log, Table of Contents, and Icon Legend.</li>
+      <li><strong>One page per task</strong> — header, general notes, cycle time, tools/drawings used, and step table.</li>
+      <li><strong>Continuation headers</strong> — when a task spans multiple pages, the task ID and description repeat at the top of each overflow page.</li>
+      <li><strong>Footer on every physical page</strong> — Left: Company/Author · Center: Page X of Y · Right: SOP ID and Effective Date.</li>
+    </ul>
+    <h3>Exporting to PDF</h3>
+    <ol>
+      <li>Click <strong>📄 PDF</strong> on the station, or <strong>Print / Save PDF</strong> inside the Preview.</li>
+      <li>In the print dialog, set Destination to <strong>Save as PDF</strong>.</li>
+      <li>Confirm paper size is <strong>Letter (8.5×11)</strong> and layout is <strong>Portrait</strong>.</li>
+    </ol>
+    <div class="tip"><strong>Color tip:</strong> In Chrome/Edge, enable "Background graphics" in print settings to preserve the teal header colors in the PDF.</div>
+  </div>
+
+  <!-- 7. Line Balance -->
+  <div class="section" id="balance">
+    <h2>7. Line Balance</h2>
+    <p>Switch to the <strong>📊 Line Balance</strong> tab to analyze cycle times and identify bottlenecks.</p>
+    <h3>Scope Filter</h3>
+    <ul>
+      <li><strong>All Stations</strong> — compares every station in the project.</li>
+      <li><strong>Line: [dropdown]</strong> — filters to stations within one selected line.</li>
+      <li><strong>Station: [dropdown]</strong> — drills into one station and shows a task-by-task breakdown.</li>
+    </ul>
+    <h3>Reading the Chart</h3>
+    <ul>
+      <li>Each bar = one station (or task in single-station mode).</li>
+      <li>The <span style="color:#ff6f00;font-weight:700;">orange line</span> = average cycle time (takt reference).</li>
+      <li><span style="color:#e53935;font-weight:700;">Red bars</span> = stations more than 10% over the average — rebalancing candidates.</li>
+    </ul>
+    <p>Click <strong>⬇️ Export CSV</strong> to download the current view as a spreadsheet.</p>
+  </div>
+
+  <!-- 8. Saving & Loading -->
+  <div class="section" id="saving">
+    <h2>8. Saving &amp; Loading</h2>
+
+    <p>The SOP Builder offers three ways to save your work, from fully automatic to fully manual. Understanding the difference helps you choose the right approach for your situation.</p>
+
+    <!-- Recommended workflow callout -->
+    <div style="background:linear-gradient(135deg,#00695c,#00897b);color:white;border-radius:10px;padding:20px 24px;margin:16px 0 24px;">
+      <div style="font-weight:700;font-size:15px;margin-bottom:10px;">⭐ Recommended Workflow — Open File Mode</div>
+      <ol style="padding-left:20px;color:rgba(255,255,255,0.92);line-height:1.9;">
+        <li>Store your <code style="background:rgba(255,255,255,0.15);border:none;color:white;">.json</code> project file in a shared folder — Google Drive, OneDrive, SharePoint, or a network drive</li>
+        <li>Click <strong>📂 Open File</strong> and navigate to that file</li>
+        <li>Work normally — edit lines, stations, tasks, steps</li>
+        <li>Click <strong>💾 Save</strong> to write changes back to the same file instantly — no dialogs, no new copies</li>
+        <li>Team members open the same file from the shared folder to pick up where you left off</li>
+      </ol>
+    </div>
+
+    <h3>Method 1 — Open File Mode (Recommended)</h3>
+    <p>This is the closest the app gets to a traditional "editable file" experience — open a file once, save back to it as many times as you want.</p>
+    <ol>
+      <li>Click <strong>📂 Open File</strong> in the top nav bar.</li>
+      <li>Navigate to your <code>.json</code> file — on your desktop, a mapped network drive, or your Google Drive / OneDrive sync folder.</li>
+      <li>The filename appears in the nav bar: <code>📄 Powder_Coat_2026-06-16.json ✕</code></li>
+      <li>Make your changes.</li>
+      <li>Click <strong>💾 Save</strong> — it writes directly back to that file, no dialog. You'll see <em>✓ Saved → filename.json</em> flash in the nav.</li>
+    </ol>
+    <div class="tip">
+      <strong>Works with Google Drive, OneDrive, SharePoint:</strong> As long as you use their desktop sync app (Google Drive for Desktop, OneDrive sync), the files appear as a regular folder on your computer. Open the file from there and Save writes back to the cloud automatically on next sync.
+    </div>
+    <div class="tip">
+      <strong>To close the file connection:</strong> Click the <strong>✕</strong> next to the filename in the nav bar. This returns to manual save mode — your data is still in the browser, just no longer linked to a file.
+    </div>
+    <div class="tip">
+      <strong>Not simultaneous editing:</strong> One person at a time should have the file open. If two people edit and save simultaneously, one will overwrite the other's changes — treat it like a shared Excel file.
+    </div>
+
+    <h3>Method 2 — Export Save (Portable Backup)</h3>
+    <p>Creates a new <code>.json</code> file with a date-stamped name. Use this for backups, snapshots, or distributing a copy.</p>
+    <p>Click <strong>⬇️ Export Save</strong> to open the export dialog:</p>
+    <ul>
+      <li><strong>All Lines</strong> → saves as <code>All_Lines_YYYY-MM-DD.json</code></li>
+      <li><strong>Single Line</strong> → saves as <code>LineName_YYYY-MM-DD.json</code></li>
+    </ul>
+    <p>On <strong>Chrome or Edge</strong> a Save As dialog lets you pick any folder. On other browsers the file goes to the default Downloads folder.</p>
+    <p>Per-line and per-station save buttons are also available directly on each line and station header bar.</p>
+
+    <h3>Method 3 — Auto-Save (Safety Net)</h3>
+    <p>The app automatically saves to <strong>browser localStorage</strong> on every change. If you close the tab and reopen the app in the same browser on the same computer, your work is restored automatically.</p>
+    <div class="tip" style="border-left-color:#e53935;">
+      <strong style="color:#c62828;">⚠️ Do not rely on auto-save as your primary save.</strong> localStorage is wiped if you clear browser cache, use a different browser, or switch computers. Always use Open File Mode or Export Save for work you need to keep.
+    </div>
+
+    <h3>📂 Open File vs 📂 Load File — What's the difference?</h3>
+    <table>
+      <tr><th></th><th>📂 Open File</th><th style="opacity:0.7">Legacy: Load File fallback</th></tr>
+      <tr><td>Browser support</td><td>Chrome, Edge (full Save As)</td><td>All browsers</td></tr>
+      <tr><td>Save behavior</td><td>💾 Save writes back to same file silently</td><td>Manual Export Save required each time</td></tr>
+      <tr><td>Creates new files?</td><td>No — edits in place</td><td>Yes — new file each export</td></tr>
+      <tr><td>Works with shared drives?</td><td>Yes — via desktop sync folder</td><td>Yes — but manual copy back required</td></tr>
+    </table>
+    <p style="font-size:13px;color:#888;">Note: On Firefox or Safari, <strong>📂 Open File</strong> falls back to the legacy file input automatically.</p>
+
+    <h3>📥 Import Wizard (Selective)</h3>
+    <p>Click <strong>📥 Import</strong> to cherry-pick content from any save file — without replacing your current project. Useful for reusing stations across projects or merging work from multiple files.</p>
+    <ol>
+      <li><strong>Pick file</strong> — supports both old format (stations only) and new format (lines + stations).</li>
+      <li><strong>Select items</strong> — check individual stations, tasks, or steps in a tree view. Use Select All or pick individually. Stations whose parent station is selected include all tasks automatically.</li>
+      <li><strong>Assign destinations</strong> — choose which line to add imported stations to. Assign orphan tasks/steps to existing stations and tasks.</li>
+    </ol>
+    <p>Imported items receive new IDs so they never conflict with existing content.</p>
+  </div>
+
+  <!-- 9. Tips -->
+  <div class="section" id="tips">
+    <h2>9. Tips &amp; Best Practices</h2>
+    <h3>Setup</h3>
+    <ul>
+      <li>Set the <strong>Station Identifier</strong> on a line <em>before</em> creating stations — every new station gets auto-numbered immediately (e.g. <code>PWD-WIP-01</code>).</li>
+      <li>Build your <strong>Tool List</strong> and <strong>Drawings</strong> on the station first, before writing tasks — they'll be available as dropdowns at every task and step.</li>
+    </ul>
+    <h3>Saving</h3>
+    <ul>
+      <li><strong>Use Open File Mode as your primary way of working.</strong> Store the <code>.json</code> file in Google Drive or a network folder, open it at the start of each session, and hit 💾 Save regularly — just like any other app.</li>
+      <li>Use <strong>⬇️ Export Save</strong> to create dated snapshots before major changes — a quick backup before restructuring a line or creating a new revision.</li>
+      <li>Never rely on browser auto-save as your only copy. It disappears with a cache clear.</li>
+    </ul>
+    <h3>Revisions</h3>
+    <ul>
+      <li>Use <strong>Revision A</strong> for initial builds. Only create new revisions (B, C…) when formally updating — the Windchill reminder in the dialog ensures uploads aren't missed.</li>
+      <li>The revision letter is editable in the dialog — you can skip from A to C, or go to AA if needed.</li>
+    </ul>
+    <h3>Rebalancing</h3>
+    <ul>
+      <li>Use <strong>↪ Move Task</strong> or <strong>↪ Move Step</strong> to rebalance rather than rebuilding — content, images, cycle times, and tool/drawing assignments all move with the item.</li>
+      <li>Use the <strong>📊 Line Balance</strong> tab's Station scope to drill into a single station and see which tasks are the bottleneck within it.</li>
+    </ul>
+    <h3>Formatting &amp; Content</h3>
+    <ul>
+      <li>The <strong>Bold/Italic toolbar</strong> on step descriptions works by selecting text first, then clicking B or I. Renders correctly in preview and PDF.</li>
+      <li>The <strong>Import Wizard</strong> is the best way to reuse content across lines or copy a station structure from one project file into another.</li>
+      <li>Insert a step <em>between</em> existing steps using the <strong>+</strong> button that appears in the gap between steps — no need to add at the bottom and drag up.</li>
+    </ul>
+  </div>
+
+</div>
+
+<a href="#" class="back-top" title="Back to top">↑</a>
+
+</body>
+</html>
