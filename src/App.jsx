@@ -177,20 +177,41 @@ const smartSave = async (stations, lines, defaultName, handle, onHandleChange, o
   if(handle) {
     const ok = await writeToHandle(handle, stations, lines);
     if(ok) {
-      // Write CSV silently alongside — same folder, same base name
       const csv = buildCSV(stations);
+      const baseName = (handle.name||defaultName).replace(/\.json$/i,"");
       try {
-        // Re-use stored csv handle if available, else silent fallback download
         if(handle._csvHandle) {
+          // Silently write to existing CSV handle
           const w = await handle._csvHandle.createWritable();
           await w.write(csv); await w.close();
+          onFlash(`✓ Saved → ${handle.name||baseName}.json + .csv`);
         } else {
-          const a=document.createElement("a");
-          a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8;"}));
-          a.download=`${baseName}.csv`; a.click();
+          // No CSV handle yet — prompt user to pick or create one
+          if(window.showSaveFilePicker) {
+            try {
+              const csvHandle = await window.showSaveFilePicker({
+                suggestedName: `${baseName}.csv`,
+                types:[{description:"CSV Backup",accept:{"text/csv":[".csv"]}}],
+              });
+              const cw = await csvHandle.createWritable();
+              await cw.write(csv); await cw.close();
+              handle._csvHandle = csvHandle;
+              onFlash(`✓ Saved → ${handle.name||baseName}.json + ${csvHandle.name}`);
+            } catch(e){
+              if(e.name==="AbortError") {
+                // User cancelled CSV picker — save JSON only this time
+                onFlash(`✓ Saved → ${handle.name||baseName}.json (no CSV)`);
+              }
+            }
+          } else {
+            // Fallback download
+            const a=document.createElement("a");
+            a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8;"}));
+            a.download=`${baseName}.csv`; a.click();
+            onFlash(`✓ Saved → ${handle.name||baseName}.json + .csv downloaded`);
+          }
         }
-      } catch(e){ console.warn("CSV backup write failed",e); }
-      onFlash(`✓ Saved → ${handle.name || baseName}.json + .csv`);
+      } catch(e){ console.warn("CSV backup write failed",e); onFlash(`✓ Saved → ${handle.name||baseName}.json`); }
       return;
     }
     // Handle invalid — clear and fall through to picker
@@ -2998,13 +3019,40 @@ export default function App() {
                 // Verify write permission up front
                 const perm = await handle.queryPermission({mode:"readwrite"});
                 if(perm!=="granted") await handle.requestPermission({mode:"readwrite"});
-                loadFile(file, loaded=>{
+
+                loadFile(file, async loaded=>{
                   setStations(loaded.stations);
                   setLines(loaded.lines||[]);
                   setActive(null);
-                  setActiveFileHandle(handle);
                   setActiveFileName(file.name);
-                  flash(`✓ Opened: ${file.name}`);
+
+                  // Prompt for companion CSV file
+                  const baseName = file.name.replace(/\.json$/i,"");
+                  const wantCsv = window.confirm(
+                    `📄 Opened: ${file.name}\n\n` +
+                    `Would you like to link the companion CSV backup file?\n` +
+                    `(${baseName}.csv)\n\n` +
+                    `Click OK to browse for it, or Cancel to skip.\n` +
+                    `If no CSV exists yet, one will be created on your next Save.`
+                  );
+                  if(wantCsv){
+                    try {
+                      const [csvHandle] = await window.showOpenFilePicker({
+                        types:[{description:"CSV Backup",accept:{"text/csv":[".csv"]}}],
+                        multiple:false
+                      });
+                      const csvPerm = await csvHandle.queryPermission({mode:"readwrite"});
+                      if(csvPerm!=="granted") await csvHandle.requestPermission({mode:"readwrite"});
+                      handle._csvHandle = csvHandle;
+                      flash(`✓ Opened: ${file.name} + ${csvHandle.name}`);
+                    } catch(e){
+                      if(e.name!=="AbortError") console.warn("CSV link skipped",e);
+                      flash(`✓ Opened: ${file.name} (no CSV linked)`);
+                    }
+                  } else {
+                    flash(`✓ Opened: ${file.name}`);
+                  }
+                  setActiveFileHandle(handle);
                 });
                 return;
               } catch(e){
