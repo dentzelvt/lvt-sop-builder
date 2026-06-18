@@ -1023,7 +1023,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                   style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isLineOpen?"white":"#333"}}>
                   📄 All PDFs
                 </button>
-                <button onClick={()=>confirmDelete("line", line.name||"this line", ()=>delLine(line.id))}
+                <button onClick={()=>confirmDelete("line", line.name||"this line", {lineId:line.id})}
                   style={{background:"rgba(200,0,0,0.12)",border:"1px solid rgba(200,0,0,0.25)",borderRadius:4,padding:"3px 8px",cursor:"pointer",color:"#c62828",fontSize:12}}>✕</button>
               </div>
             </div>
@@ -1128,10 +1128,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                         isActive={activeStationId===s.id}
                         onSelect={()=>setActiveStationId(activeStationId===s.id?null:s.id)}
                         onUpdate={(updated, extra)=>updStation(updated, extra)}
-                        onDelete={()=>confirmDelete("station", s.stationNo||s.sopId||"this station", ()=>{
-                          onStationsChange(prev=>prev.filter(st=>st.id!==s.id));
-                          updLine({...line,stationIds:line.stationIds.filter(id=>id!==s.id)});
-                        })}
+                        onDelete={()=>confirmDelete("station", s.stationNo||s.sopId||"this station", {stationId:s.id})}
                         onPreview={()=>setPreview({...s,lineName:line.name})}
                         allStations={stations}
                         lineName={line.name}
@@ -1320,8 +1317,7 @@ function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allSta
               )}
             </div>
           )}
-          <button onClick={()=>confirmDelete?confirmDelete("step",step.description?step.description.slice(0,40)+(step.description.length>40?"…":""):"this step",onDelete):onDelete()}
-            style={{padding:"2px 8px",fontSize:12,background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:4,cursor:"pointer",color:"#c62828"}}>✕</button>
+          <button onClick={onDelete} style={{padding:"2px 8px",fontSize:12,background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:4,cursor:"pointer",color:"#c62828"}}>✕</button>
         </div>
       </div>
       <RichTextEditor value={step.description||""} onChange={e=>u("description",e.target.value)}
@@ -1444,8 +1440,7 @@ function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStat
             )}
           </div>
         )}
-        <button onClick={e=>{e.stopPropagation();
-          confirmDelete?confirmDelete("task",task.description||"this task",onDelete):onDelete();}}
+        <button onClick={e=>{e.stopPropagation();onDelete();}}
           style={{background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:4,padding:"3px 8px",cursor:"pointer",color:"#c62828",fontSize:11,flexShrink:0}}>✕</button>
       </div>
 
@@ -1507,7 +1502,7 @@ function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStat
                   step={step} idx={i} showNums={showNums}
                   dragProps={stepDrag(i)}
                   onChange={s=>updStep(i,s)}
-                  onDelete={()=>confirmDelete?confirmDelete("step",step.description?step.description.slice(0,40)+(step.description.length>40?"…":""):"this step",()=>delStep(i)):delStep(i)}
+                  onDelete={()=>{ if(confirmDelete){ confirmDelete("step",step.description?step.description.slice(0,40)+(step.description.length>40?"…":""):"this step",{stationId:thisStationId,taskId:task.id,stepIdx:i}); } else delStep(i); }}
                   allStations={allStations}
                   thisStationId={thisStationId}
                   thisTaskId={task.id}
@@ -1965,7 +1960,7 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
               <TaskEditor key={task.id} task={task}
                 dragProps={taskDrag(i)}
                 onUpdate={(t,extra)=>updTask(i,t,extra)}
-                onDelete={()=>confirmDelete?confirmDelete("task",task.description||"this task",()=>delTask(i)):delTask(i)}
+                onDelete={()=>{ if(confirmDelete){ const sid=station.id; confirmDelete("task",task.description||"this task",{stationId:sid,taskIdx:i}); } else delTask(i); }}
                 allStations={allStations}
                 thisStationId={station.id}
                 onMoveTask={(targetId)=>moveTask(i,targetId)}
@@ -2898,15 +2893,36 @@ export default function App() {
   const [showSaveInfo,   setShowSaveInfo]   = useState(false);
   const [showImport,     setShowImport]     = useState(false);
   const [showExportSave, setShowExportSave] = useState(false);
-  const [deletePrompt,   setDeletePrompt]   = useState(null); // {type,name}
-  const deleteFnRef = useRef(null); // stores the actual delete fn to avoid stale closures
+  const [deletePrompt,   setDeletePrompt]   = useState(null); // {type, name, ids}
   const [showNewProject, setShowNewProject] = useState(false);
   const [csvPrompt,      setCsvPrompt]      = useState(null); // {baseName, onLink, onSkip}
 
-  // Wrapper: show confirm modal, call fn on confirm
-  const confirmDelete = (type, name, fn) => {
-    deleteFnRef.current = fn;
-    setDeletePrompt({type, name});
+  // confirmDelete — stores type + ids, executes deletion with fresh state on confirm
+  // ids: { lineId, stationId, taskIdx, stepIdx }  (only the relevant ones)
+  const confirmDelete = (type, name, ids={}) => setDeletePrompt({type, name, ids});
+
+  // Execute the actual delete using current state (always fresh)
+  const executeDelete = (type, ids) => {
+    if(type==="line") {
+      setLines(prev => prev.filter(l => l.id !== ids.lineId));
+    } else if(type==="station") {
+      setStations(prev => prev.filter(s => s.id !== ids.stationId));
+      setLines(prev => prev.map(l => ({...l, stationIds: l.stationIds.filter(id => id !== ids.stationId)})));
+    } else if(type==="task") {
+      setStations(prev => prev.map(s => {
+        if(s.id !== ids.stationId) return s;
+        return {...s, tasks: reindex(s.tasks.filter((_,i) => i !== ids.taskIdx), s.sopId)};
+      }));
+    } else if(type==="step") {
+      setStations(prev => prev.map(s => {
+        if(s.id !== ids.stationId) return s;
+        return {...s, tasks: s.tasks.map(t => {
+          if(t.id !== ids.taskId) return t;
+          return {...t, steps: t.steps.filter((_,si) => si !== ids.stepIdx)};
+        })};
+      }));
+    }
+    setDeletePrompt(null);
   };
   const [activeFileHandle, setActiveFileHandle] = useState(null); // global (All Lines) handle
   const [activeFileName,   setActiveFileName]   = useState("");
@@ -3131,7 +3147,7 @@ export default function App() {
       {deletePrompt&&<ConfirmDeleteModal
         type={deletePrompt.type}
         name={deletePrompt.name}
-        onConfirm={()=>{ deleteFnRef.current?.(); setDeletePrompt(null); }}
+        onConfirm={()=>executeDelete(deletePrompt.type, deletePrompt.ids)}
         onCancel={()=>setDeletePrompt(null)}
       />}
       {showNewProject&&<NewProjectModal
