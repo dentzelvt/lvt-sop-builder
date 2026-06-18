@@ -2900,6 +2900,7 @@ export default function App() {
   const [showExportSave, setShowExportSave] = useState(false);
   const [deletePrompt,   setDeletePrompt]   = useState(null); // {type,name,onConfirm}
   const [showNewProject, setShowNewProject] = useState(false);
+  const [csvPrompt,      setCsvPrompt]      = useState(null); // {baseName, onLink, onSkip}
 
   // Wrapper: show confirm modal, call fn on confirm
   const confirmDelete = (type, name, fn) => setDeletePrompt({type, name, onConfirm:()=>{ fn(); setDeletePrompt(null); }});
@@ -3020,39 +3021,36 @@ export default function App() {
                 const perm = await handle.queryPermission({mode:"readwrite"});
                 if(perm!=="granted") await handle.requestPermission({mode:"readwrite"});
 
-                loadFile(file, async loaded=>{
+                loadFile(file, loaded=>{
                   setStations(loaded.stations);
                   setLines(loaded.lines||[]);
                   setActive(null);
                   setActiveFileName(file.name);
-
-                  // Prompt for companion CSV file
-                  const baseName = file.name.replace(/\.json$/i,"");
-                  const wantCsv = window.confirm(
-                    `📄 Opened: ${file.name}\n\n` +
-                    `Would you like to link the companion CSV backup file?\n` +
-                    `(${baseName}.csv)\n\n` +
-                    `Click OK to browse for it, or Cancel to skip.\n` +
-                    `If no CSV exists yet, one will be created on your next Save.`
-                  );
-                  if(wantCsv){
-                    try {
-                      const [csvHandle] = await window.showOpenFilePicker({
-                        types:[{description:"CSV Backup",accept:{"text/csv":[".csv"]}}],
-                        multiple:false
-                      });
-                      const csvPerm = await csvHandle.queryPermission({mode:"readwrite"});
-                      if(csvPerm!=="granted") await csvHandle.requestPermission({mode:"readwrite"});
-                      handle._csvHandle = csvHandle;
-                      flash(`✓ Opened: ${file.name} + ${csvHandle.name}`);
-                    } catch(e){
-                      if(e.name!=="AbortError") console.warn("CSV link skipped",e);
-                      flash(`✓ Opened: ${file.name} (no CSV linked)`);
-                    }
-                  } else {
-                    flash(`✓ Opened: ${file.name}`);
-                  }
                   setActiveFileHandle(handle);
+                  flash(`✓ Opened: ${file.name}`);
+
+                  // Show React modal to link companion CSV
+                  const baseName = file.name.replace(/\.json$/i,"");
+                  setCsvPrompt({
+                    baseName,
+                    jsonFileName: file.name,
+                    onLink: async () => {
+                      try {
+                        const [csvHandle] = await window.showOpenFilePicker({
+                          types:[{description:"CSV Backup",accept:{"text/csv":[".csv"]}}],
+                          multiple:false
+                        });
+                        const csvPerm = await csvHandle.queryPermission({mode:"readwrite"});
+                        if(csvPerm!=="granted") await csvHandle.requestPermission({mode:"readwrite"});
+                        handle._csvHandle = csvHandle;
+                        flash(`✓ CSV linked: ${csvHandle.name}`);
+                      } catch(e){
+                        if(e.name!=="AbortError") console.warn("CSV link failed",e);
+                      }
+                      setCsvPrompt(null);
+                    },
+                    onSkip: () => { setCsvPrompt(null); flash(`✓ Opened: ${file.name} — CSV will be set on first Save`); }
+                  });
                 });
                 return;
               } catch(e){
@@ -3097,6 +3095,35 @@ export default function App() {
       {preview&&<SOPPreview station={preview} onClose={()=>setPreview(null)}/>}
       {showSaveInfo&&<SaveInfoModal onExport={()=>setShowExportSave(true)} onClose={()=>setShowSaveInfo(false)}/>}
       {showExportSave&&<ExportSaveModal lines={lines} stations={stations} onClose={()=>{setShowExportSave(false);flash("✓ File downloaded");}}/>}
+      {csvPrompt&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"white",borderRadius:12,padding:28,maxWidth:440,width:"90%",boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+              <span style={{fontSize:30}}>📊</span>
+              <div>
+                <div style={{fontWeight:700,fontSize:15,color:"#222"}}>Link CSV backup file?</div>
+                <div style={{fontSize:12,color:"#888",marginTop:2}}>Opened: {csvPrompt.jsonFileName}</div>
+              </div>
+            </div>
+            <div style={{background:TEAL_LIGHT,border:"1px solid #80cbc4",borderRadius:8,padding:"12px 14px",marginBottom:8,fontSize:13,color:"#333",lineHeight:1.6}}>
+              If you have an existing <code style={{background:"#e0f2f1",padding:"1px 4px",borderRadius:3}}>{csvPrompt.baseName}.csv</code> from a previous save, link it here so future saves update it automatically.
+            </div>
+            <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:8,padding:"10px 14px",marginBottom:18,fontSize:12,color:"#666"}}>
+              No CSV yet? Click <strong>Skip</strong> — a Save As dialog will appear on your first save so you can choose where to create it.
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={csvPrompt.onLink}
+                style={{flex:2,background:TEAL,color:"white",border:"none",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:700}}>
+                📂 Browse for CSV file
+              </button>
+              <button onClick={csvPrompt.onSkip}
+                style={{flex:1,background:"#f5f5f5",color:"#555",border:"1px solid #ddd",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13}}>
+                Skip
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {deletePrompt&&<ConfirmDeleteModal type={deletePrompt.type} name={deletePrompt.name} onConfirm={deletePrompt.onConfirm} onCancel={()=>setDeletePrompt(null)}/>}
       {showNewProject&&<NewProjectModal
         onConfirm={()=>{
