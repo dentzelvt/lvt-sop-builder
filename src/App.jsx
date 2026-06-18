@@ -2898,12 +2898,16 @@ export default function App() {
   const [showSaveInfo,   setShowSaveInfo]   = useState(false);
   const [showImport,     setShowImport]     = useState(false);
   const [showExportSave, setShowExportSave] = useState(false);
-  const [deletePrompt,   setDeletePrompt]   = useState(null); // {type,name,onConfirm}
+  const [deletePrompt,   setDeletePrompt]   = useState(null); // {type,name}
+  const deleteFnRef = useRef(null); // stores the actual delete fn to avoid stale closures
   const [showNewProject, setShowNewProject] = useState(false);
   const [csvPrompt,      setCsvPrompt]      = useState(null); // {baseName, onLink, onSkip}
 
   // Wrapper: show confirm modal, call fn on confirm
-  const confirmDelete = (type, name, fn) => setDeletePrompt({type, name, onConfirm:()=>{ fn(); setDeletePrompt(null); }});
+  const confirmDelete = (type, name, fn) => {
+    deleteFnRef.current = fn;
+    setDeletePrompt({type, name});
+  };
   const [activeFileHandle, setActiveFileHandle] = useState(null); // global (All Lines) handle
   const [activeFileName,   setActiveFileName]   = useState("");
   const [lineHandles,      setLineHandles]      = useState({});   // lineId → {handle, name}
@@ -3124,7 +3128,12 @@ export default function App() {
           </div>
         </div>
       )}
-      {deletePrompt&&<ConfirmDeleteModal type={deletePrompt.type} name={deletePrompt.name} onConfirm={deletePrompt.onConfirm} onCancel={()=>setDeletePrompt(null)}/>}
+      {deletePrompt&&<ConfirmDeleteModal
+        type={deletePrompt.type}
+        name={deletePrompt.name}
+        onConfirm={()=>{ deleteFnRef.current?.(); setDeletePrompt(null); }}
+        onCancel={()=>setDeletePrompt(null)}
+      />}
       {showNewProject&&<NewProjectModal
         onConfirm={()=>{
           setStations([]); setLines([]); setActive(null);
