@@ -915,7 +915,7 @@ function AddExistingStation({ available, assignedIds, onAdd }) {
   );
 }
 
-function LinesManager({ lines, stations, onLinesChange, onStationsChange, updStation, preview, setPreview, stationHandles, setStationHandle, lineHandles, setLineHandle, flash }) {
+function LinesManager({ lines, stations, onLinesChange, onStationsChange, updStation, preview, setPreview, stationHandles, setStationHandle, lineHandles, setLineHandle, flash, confirmDelete }) {
   const [activeLineId,    setActiveLineId]    = useState(null);
   const [activeStationId, setActiveStationId] = useState(null);
 
@@ -1002,7 +1002,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                   style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isLineOpen?"white":"#333"}}>
                   📄 All PDFs
                 </button>
-                <button onClick={()=>delLine(line.id)}
+                <button onClick={()=>confirmDelete("line", line.name||"this line", ()=>delLine(line.id))}
                   style={{background:"rgba(200,0,0,0.12)",border:"1px solid rgba(200,0,0,0.25)",borderRadius:4,padding:"3px 8px",cursor:"pointer",color:"#c62828",fontSize:12}}>✕</button>
               </div>
             </div>
@@ -1107,10 +1107,10 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                         isActive={activeStationId===s.id}
                         onSelect={()=>setActiveStationId(activeStationId===s.id?null:s.id)}
                         onUpdate={(updated, extra)=>updStation(updated, extra)}
-                        onDelete={()=>{
+                        onDelete={()=>confirmDelete("station", s.stationNo||s.sopId||"this station", ()=>{
                           onStationsChange(prev=>prev.filter(st=>st.id!==s.id));
                           updLine({...line,stationIds:line.stationIds.filter(id=>id!==s.id)});
-                        }}
+                        })}
                         onPreview={()=>setPreview({...s,lineName:line.name})}
                         allStations={stations}
                         lineName={line.name}
@@ -1120,6 +1120,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                           setStationHandle(s.id,h,n);
                           if(msg) flash(msg);
                         }}
+                        confirmDelete={confirmDelete}
                       />
                     </div>
                   ))}
@@ -1248,7 +1249,7 @@ function IconPicker({ selected, onChange }) {
 }
 
 // ─── Step Editor ──────────────────────────────────────────────────────────────
-function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allStations, thisStationId, thisTaskId, onMoveStep, stationToolList, stationDrawings }) {
+function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allStations, thisStationId, thisTaskId, onMoveStep, stationToolList, stationDrawings, confirmDelete=null }) {
   const u=(f,v)=>onChange({...step,[f]:v});
   const [showMove,setShowMove]=useState(false);
 
@@ -1298,7 +1299,8 @@ function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allSta
               )}
             </div>
           )}
-          <button onClick={onDelete} style={{padding:"2px 8px",fontSize:12,background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:4,cursor:"pointer",color:"#c62828"}}>✕</button>
+          <button onClick={()=>confirmDelete?confirmDelete("step",step.description?step.description.slice(0,40)+(step.description.length>40?"…":""):"this step",onDelete):onDelete()}
+            style={{padding:"2px 8px",fontSize:12,background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:4,cursor:"pointer",color:"#c62828"}}>✕</button>
         </div>
       </div>
       <RichTextEditor value={step.description||""} onChange={e=>u("description",e.target.value)}
@@ -1357,7 +1359,7 @@ function InsertStepBtn({ onInsert }) {
 }
 
 // ─── Task Editor ──────────────────────────────────────────────────────────────
-function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStationId, onMoveTask, stationToolList, stationDrawings }) {
+function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStationId, onMoveTask, stationToolList, stationDrawings, confirmDelete=null }) {
   // Derive showNums from actual step data — if any step has useStepNumber:false, treat as off
   const [showNums, setShowNums] = useState(
     () => task.steps.length === 0 || task.steps.some(s => s.useStepNumber !== false)
@@ -1421,7 +1423,8 @@ function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStat
             )}
           </div>
         )}
-        <button onClick={e=>{e.stopPropagation();onDelete();}}
+        <button onClick={e=>{e.stopPropagation();
+          confirmDelete?confirmDelete("task",task.description||"this task",onDelete):onDelete();}}
           style={{background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:4,padding:"3px 8px",cursor:"pointer",color:"#c62828",fontSize:11,flexShrink:0}}>✕</button>
       </div>
 
@@ -1483,13 +1486,14 @@ function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStat
                   step={step} idx={i} showNums={showNums}
                   dragProps={stepDrag(i)}
                   onChange={s=>updStep(i,s)}
-                  onDelete={()=>delStep(i)}
+                  onDelete={()=>confirmDelete?confirmDelete("step",step.description?step.description.slice(0,40)+(step.description.length>40?"…":""):"this step",()=>delStep(i)):delStep(i)}
                   allStations={allStations}
                   thisStationId={thisStationId}
                   thisTaskId={task.id}
                   onMoveStep={(targetStationId,targetTaskId)=>handleMoveStep(i,targetStationId,targetTaskId)}
                   stationToolList={stationToolList||[]}
                   stationDrawings={stationDrawings||[]}
+                  confirmDelete={confirmDelete}
                 />
                 <InsertStepBtn onInsert={()=>insertStep(i)}/>
               </div>
@@ -1778,7 +1782,7 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
 }
 
 // ─── Station Editor ───────────────────────────────────────────────────────────
-function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPreview, allStations, lineName="", stationIdentifier="", stationHandle=null, onStationHandle=null }) {
+function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPreview, allStations, lineName="", stationIdentifier="", stationHandle=null, onStationHandle=null, confirmDelete=null }) {
   const u=(f,v)=>{
     const upd={...station,[f]:v};
     if(["stationNo","asmVersion","sopRev"].includes(f)){
@@ -1940,12 +1944,13 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
               <TaskEditor key={task.id} task={task}
                 dragProps={taskDrag(i)}
                 onUpdate={(t,extra)=>updTask(i,t,extra)}
-                onDelete={()=>delTask(i)}
+                onDelete={()=>confirmDelete?confirmDelete("task",task.description||"this task",()=>delTask(i)):delTask(i)}
                 allStations={allStations}
                 thisStationId={station.id}
                 onMoveTask={(targetId)=>moveTask(i,targetId)}
                 stationToolList={station.toolList||[]}
                 stationDrawings={station.drawings||[]}
+                confirmDelete={confirmDelete}
               />
             ))}
             <button onClick={addTask} style={{background:TEAL_LIGHT,border:`2px dashed ${TEAL}`,borderRadius:8,padding:"10px 18px",cursor:"pointer",fontSize:13,width:"100%",color:TEAL_DARK,fontWeight:600,marginTop:6}}>
@@ -2721,6 +2726,88 @@ function ExportSaveModal({ lines, stations, onClose }) {
   );
 }
 
+// ─── Confirm Delete Modal ─────────────────────────────────────────────────────
+function ConfirmDeleteModal({ type, name, onConfirm, onCancel }) {
+  const colors = {
+    step:    { bg:"#fff3e0", border:"#ffb74d", icon:"🔢", accent:"#e65100" },
+    task:    { bg:"#fff3e0", border:"#ffb74d", icon:"📋", accent:"#e65100" },
+    station: { bg:"#ffebee", border:"#ef9a9a", icon:"🏭", accent:"#c62828" },
+    line:    { bg:"#ffebee", border:"#ef9a9a", icon:"🏗️", accent:"#c62828" },
+  };
+  const c = colors[type] || colors.station;
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:"white",borderRadius:12,padding:28,maxWidth:420,width:"90%",boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+          <span style={{fontSize:32}}>{c.icon}</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:16,color:"#222"}}>Delete {type}?</div>
+            <div style={{fontSize:12,color:"#888",marginTop:2}}>This cannot be undone.</div>
+          </div>
+        </div>
+        <div style={{background:c.bg,border:`1px solid ${c.border}`,borderRadius:8,padding:"12px 14px",marginBottom:20}}>
+          <div style={{fontSize:13,color:"#333",marginBottom:6}}>
+            You are about to permanently delete:
+          </div>
+          <div style={{fontWeight:700,fontSize:14,color:c.accent,wordBreak:"break-word"}}>
+            {c.icon} {name || `this ${type}`}
+          </div>
+          {(type==="station"||type==="line") && (
+            <div style={{fontSize:12,color:"#666",marginTop:8,borderTop:`1px solid ${c.border}`,paddingTop:8}}>
+              ⚠️ {type==="line"
+                ? "All stations, tasks, and steps within this line will also be removed from the line. Station data is not deleted but will be unassigned."
+                : "All tasks and steps within this station will be permanently deleted."}
+            </div>
+          )}
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={onCancel}
+            style={{flex:1,background:"#f5f5f5",color:"#444",border:"1px solid #ddd",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:600}}>
+            Cancel
+          </button>
+          <button onClick={onConfirm}
+            style={{flex:1,background:c.accent,color:"white",border:"none",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:700}}>
+            Yes, Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── New Project Modal ────────────────────────────────────────────────────────
+function NewProjectModal({ onConfirm, onCancel }) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:"white",borderRadius:12,padding:28,maxWidth:440,width:"90%",boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+          <span style={{fontSize:32}}>🆕</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:16,color:"#222"}}>Start New Project?</div>
+            <div style={{fontSize:12,color:"#888",marginTop:2}}>This will clear the current workspace.</div>
+          </div>
+        </div>
+        <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:8,padding:"12px 14px",marginBottom:20}}>
+          <div style={{fontSize:13,color:"#555",lineHeight:1.7}}>
+            Starting a new project will <strong>clear all lines, stations, tasks, and steps</strong> from the current workspace.<br/><br/>
+            <strong style={{color:"#e65100"}}>Make sure you have saved your current work</strong> using <strong>💾 Save</strong> or <strong>⬇️ Export Save</strong> before continuing.
+          </div>
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={onCancel}
+            style={{flex:1,background:"#f5f5f5",color:"#444",border:"1px solid #ddd",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:600}}>
+            Cancel
+          </button>
+          <button onClick={onConfirm}
+            style={{flex:1,background:TEAL,color:"white",border:"none",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:700}}>
+            Yes, Start New Project
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Save Info Modal ──────────────────────────────────────────────────────────
 function SaveInfoModal({ onExport, onClose }) {
   return (
@@ -2790,6 +2877,11 @@ export default function App() {
   const [showSaveInfo,   setShowSaveInfo]   = useState(false);
   const [showImport,     setShowImport]     = useState(false);
   const [showExportSave, setShowExportSave] = useState(false);
+  const [deletePrompt,   setDeletePrompt]   = useState(null); // {type,name,onConfirm}
+  const [showNewProject, setShowNewProject] = useState(false);
+
+  // Wrapper: show confirm modal, call fn on confirm
+  const confirmDelete = (type, name, fn) => setDeletePrompt({type, name, onConfirm:()=>{ fn(); setDeletePrompt(null); }});
   const [activeFileHandle, setActiveFileHandle] = useState(null); // global (All Lines) handle
   const [activeFileName,   setActiveFileName]   = useState("");
   const [lineHandles,      setLineHandles]      = useState({});   // lineId → {handle, name}
@@ -2863,6 +2955,10 @@ export default function App() {
             </span>
           )}
           {saveMsg&&<span style={{fontSize:11,color:"#a5d6a7",marginRight:4}}>{saveMsg}</span>}
+          <button onClick={()=>setShowNewProject(true)}
+            style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>
+            🆕 New Project
+          </button>
           <button onClick={()=>{
             const base=window.location.origin+window.location.pathname.replace(/\/[^/]*$/,"/");
             window.open(base+"user-guide.html","_blank","noopener");
@@ -2939,6 +3035,7 @@ export default function App() {
             lineHandles={lineHandles}
             setLineHandle={setLineHandle}
             flash={flash}
+            confirmDelete={confirmDelete}
           />
         )}
 
@@ -2952,6 +3049,17 @@ export default function App() {
       {preview&&<SOPPreview station={preview} onClose={()=>setPreview(null)}/>}
       {showSaveInfo&&<SaveInfoModal onExport={()=>setShowExportSave(true)} onClose={()=>setShowSaveInfo(false)}/>}
       {showExportSave&&<ExportSaveModal lines={lines} stations={stations} onClose={()=>{setShowExportSave(false);flash("✓ File downloaded");}}/>}
+      {deletePrompt&&<ConfirmDeleteModal type={deletePrompt.type} name={deletePrompt.name} onConfirm={deletePrompt.onConfirm} onCancel={()=>setDeletePrompt(null)}/>}
+      {showNewProject&&<NewProjectModal
+        onConfirm={()=>{
+          setStations([]); setLines([]); setActive(null);
+          setActiveFileHandle(null); setActiveFileName("");
+          setLineHandles({}); setStationHandles({});
+          setShowNewProject(false);
+          flash("✓ New project started");
+        }}
+        onCancel={()=>setShowNewProject(false)}
+      />}
       {showImport&&<ImportWizard
         currentStations={stations}
         currentLines={lines}
