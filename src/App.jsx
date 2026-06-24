@@ -94,8 +94,9 @@ const mkLine = () => ({
   id: Date.now()+Math.random(),
   name: "",
   description: "",
-  stationIdentifier: "",  // e.g. "PWD-WIP" — prepended to station position number
-  stationIds: [],   // ordered list of station IDs belonging to this line
+  stationIdentifier: "",
+  savedAt: new Date().toISOString(),  // last save timestamp for conflict detection
+  stationIds: [],
 });
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
@@ -139,7 +140,7 @@ const saveFile = async (stations, lines=[], station=null, lineName=null, explici
         ? `${lineName.replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_")}_${date}`
         : `SOP_save_${date}`;
 
-  const json = JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines},null,2);
+  const json = JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines:stampLines(lines)},null,2);
 
   // Use File System Access API (Chrome/Edge) for Save As dialog
   if(window.showSaveFilePicker) {
@@ -166,20 +167,34 @@ const saveFile = async (stations, lines=[], station=null, lineName=null, explici
   a.click();
 };
 // Write current project data back to an already-open file handle (no dialog)
+const stampLines = (lines) => {
+  const now = new Date().toISOString();
+  return lines.map(l => ({...l, savedAt: now}));
+};
+
+// Read savedAt from the current file on disk without writing
+const readFileSavedAt = async (handle) => {
+  try {
+    const file = await handle.getFile();
+    const text = await file.text();
+    const data = JSON.parse(text);
+    return { savedAt: data.savedAt || null, fileModified: file.lastModified };
+  } catch { return null; }
+};
+
 const writeToHandle = async (handle, stations, lines) => {
   try {
-    const json = JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines},null,2);
+    const json = JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines:stampLines(lines)},null,2);
     const writable = await handle.createWritable();
     await writable.write(json);
     await writable.close();
     return true;
   } catch(e) {
     if(e.name==="NotAllowedError") {
-      // Permission was revoked (e.g. page reload) — need to re-request
       try {
         await handle.requestPermission({mode:"readwrite"});
         const writable = await handle.createWritable();
-        const json = JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines},null,2);
+        const json = JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines:stampLines(lines)},null,2);
         await writable.write(json);
         await writable.close();
         return true;
@@ -246,7 +261,7 @@ const smartSave = async (stations, lines, defaultName, handle, onHandleChange, o
         suggestedName: `${baseName}.json`,
         types:[{description:"SOP Builder Save File",accept:{"application/json":[".json"]}}],
       });
-      const json = JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines},null,2);
+      const json = JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines:stampLines(lines)},null,2);
       const writable = await newHandle.createWritable();
       await writable.write(json); await writable.close();
 
@@ -271,7 +286,7 @@ const smartSave = async (stations, lines, defaultName, handle, onHandleChange, o
   }
 
   // Fallback: plain downloads for both
-  const json = JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines},null,2);
+  const json = JSON.stringify({version:2,savedAt:new Date().toISOString(),stations,lines:stampLines(lines)},null,2);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([json],{type:"application/json"}));
   a.download = `${baseName}.json`; a.click();
@@ -961,7 +976,7 @@ function AddExistingStation({ available, assignedIds, onAdd }) {
   );
 }
 
-function LinesManager({ lines, stations, onLinesChange, onStationsChange, updStation, preview, setPreview, stationHandles, setStationHandle, lineHandles, setLineHandle, flash, confirmDelete }) {
+function LinesManager({ lines, stations, onLinesChange, onStationsChange, updStation, preview, setPreview, stationHandles, setStationHandle, lineHandles, setLineHandle, flash, confirmDelete, openLineFile }) {
   const [activeLineId,    setActiveLineId]    = useState(null);
   const [activeStationId, setActiveStationId] = useState(null);
 
@@ -997,10 +1012,18 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
           <h2 style={{margin:0,color:TEAL_DARK}}>Production Lines</h2>
           <span style={{fontSize:12,color:"#888"}}>{lines.length} line(s) · {stations.length} total station(s)</span>
         </div>
-        <button onClick={addLine}
-          style={{background:TEAL,color:"white",border:"none",borderRadius:8,padding:"10px 20px",cursor:"pointer",fontSize:14,fontWeight:700,boxShadow:"0 2px 6px rgba(0,137,123,0.3)"}}>
-          + New Line
-        </button>
+        <div style={{display:"flex",gap:8}}>
+          {openLineFile && (
+            <button onClick={openLineFile}
+              style={{background:"rgba(0,105,92,0.08)",color:TEAL_DARK,border:`1px solid ${TEAL}`,borderRadius:8,padding:"10px 16px",cursor:"pointer",fontSize:14,fontWeight:600}}>
+              📥 Add Line from File
+            </button>
+          )}
+          <button onClick={addLine}
+            style={{background:TEAL,color:"white",border:"none",borderRadius:8,padding:"10px 20px",cursor:"pointer",fontSize:14,fontWeight:700,boxShadow:"0 2px 6px rgba(0,137,123,0.3)"}}>
+            + New Line
+          </button>
+        </div>
       </div>
 
       {lines.length===0 && (
@@ -2849,6 +2872,182 @@ function NewProjectModal({ onConfirm, onCancel }) {
   );
 }
 
+// ─── File Conflict Modal ──────────────────────────────────────────────────────
+// Shown when the file on disk is newer than when the user opened it.
+function FileConflictModal({ fileName, openedAt, fileUpdatedAt, onOverwrite, onMerge, onCancel }) {
+  const fmt = (iso) => { try { return new Date(iso).toLocaleString(); } catch { return iso||"unknown"; } };
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:5000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:"white",borderRadius:12,padding:28,maxWidth:480,width:"95%",boxShadow:"0 8px 40px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:16}}>
+          <span style={{fontSize:36}}>⚠️</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:16,color:"#b71c1c"}}>File Updated by Someone Else</div>
+            <div style={{fontSize:12,color:"#888",marginTop:2}}>{fileName}</div>
+          </div>
+        </div>
+
+        <div style={{background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:8,padding:"12px 14px",marginBottom:14}}>
+          <div style={{fontSize:13,color:"#333",lineHeight:1.7}}>
+            This file was <strong>updated after you opened it</strong>. Another user may have made changes.
+            Saving now would overwrite their work.
+          </div>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20,fontSize:12}}>
+          <div style={{background:"#f5f5f5",borderRadius:6,padding:"10px 12px"}}>
+            <div style={{color:"#888",marginBottom:3}}>You opened it at</div>
+            <div style={{fontWeight:700,color:"#555"}}>{fmt(openedAt)}</div>
+          </div>
+          <div style={{background:"#fff3e0",borderRadius:6,padding:"10px 12px",border:"1px solid #ffcc80"}}>
+            <div style={{color:"#e65100",marginBottom:3}}>File last saved at</div>
+            <div style={{fontWeight:700,color:"#e65100"}}>{fmt(fileUpdatedAt)}</div>
+          </div>
+        </div>
+
+        <div style={{fontSize:12,color:"#555",marginBottom:16,lineHeight:1.7}}>
+          <strong>What would you like to do?</strong>
+        </div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <button onClick={onMerge}
+            style={{background:TEAL,color:"white",border:"none",borderRadius:7,padding:"11px 0",cursor:"pointer",fontSize:13,fontWeight:700}}>
+            📥 Review file changes before saving
+          </button>
+          <button onClick={onOverwrite}
+            style={{background:"#ffebee",color:"#c62828",border:"2px solid #ef9a9a",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:600}}>
+            ⚠️ Overwrite anyway (discard their changes)
+          </button>
+          <button onClick={onCancel}
+            style={{background:"#f5f5f5",color:"#555",border:"1px solid #ddd",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13}}>
+            Cancel — don't save yet
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Merge Line Modal ─────────────────────────────────────────────────────────
+// Shown when an incoming line matches an existing line in the workspace.
+// User chooses: keep theirs / use file / keep both.
+function MergeLineModal({ conflicts, nonConflicts, onResolve, onCancel }) {
+  // resolutions: { lineId: "keep" | "replace" | "both" }
+  const [resolutions, setResolutions] = useState(() => {
+    const init = {};
+    conflicts.forEach(c => { init[c.existing.id] = "keep"; });
+    return init;
+  });
+
+  const fmtDate = (iso) => {
+    if(!iso) return "unknown";
+    try { return new Date(iso).toLocaleString(); } catch { return iso; }
+  };
+
+  const setRes = (id, val) => setResolutions(r => ({...r, [id]: val}));
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:"white",borderRadius:12,padding:0,maxWidth:600,width:"95%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.3)"}}>
+        {/* Header */}
+        <div style={{background:TEAL_DARK,color:"white",padding:"14px 20px",borderRadius:"12px 12px 0 0",flexShrink:0}}>
+          <div style={{fontWeight:700,fontSize:15}}>📥 Add Line to Workspace</div>
+          <div style={{fontSize:12,opacity:0.8,marginTop:2}}>
+            {nonConflicts.length > 0 && `${nonConflicts.length} new line(s) will be added. `}
+            {conflicts.length > 0 && `${conflicts.length} line(s) already exist in your workspace — choose what to do.`}
+          </div>
+        </div>
+
+        <div style={{padding:20,overflowY:"auto",flex:1}}>
+
+          {/* New lines — no conflicts */}
+          {nonConflicts.length > 0 && (
+            <div style={{marginBottom:20}}>
+              <div style={{fontWeight:600,fontSize:13,color:"#2e7d32",marginBottom:8}}>
+                ✅ New lines (will be added automatically):
+              </div>
+              {nonConflicts.map(l => (
+                <div key={l.id} style={{padding:"8px 12px",background:"#e8f5e9",borderRadius:6,marginBottom:4,fontSize:13}}>
+                  🏗️ <strong>{l.name||"(unnamed)"}</strong>
+                  <span style={{fontSize:11,color:"#666",marginLeft:8}}>{l.stationIds.length} station(s)</span>
+                  {l.savedAt && <span style={{fontSize:10,color:"#888",marginLeft:8}}>saved {new Date(l.savedAt).toLocaleString()}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Conflicting lines */}
+          {conflicts.map(({existing, incoming}) => {
+            const existingNewer = existing.savedAt && incoming.savedAt && existing.savedAt > incoming.savedAt;
+            const incomingNewer = existing.savedAt && incoming.savedAt && incoming.savedAt > existing.savedAt;
+            const res = resolutions[existing.id];
+            return (
+              <div key={existing.id} style={{border:"2px solid #ffb74d",borderRadius:8,padding:14,marginBottom:14,background:"#fffde7"}}>
+                <div style={{fontWeight:700,fontSize:13,color:"#e65100",marginBottom:10}}>
+                  ⚠️ Conflict: <strong>{existing.name||"(unnamed)"}</strong>
+                </div>
+
+                {/* Version comparison */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                  <div style={{background:existingNewer?"#e8f5e9":"#f5f5f5",borderRadius:6,padding:10,border:existingNewer?"2px solid #81c784":"1px solid #e0e0e0"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:existingNewer?TEAL_DARK:"#555",marginBottom:4}}>
+                      Your version {existingNewer?"✓ NEWER":""}
+                    </div>
+                    <div style={{fontSize:11,color:"#666"}}>
+                      {existing.stationIds.length} station(s)<br/>
+                      <span style={{fontSize:10}}>Last saved: {fmtDate(existing.savedAt)}</span>
+                    </div>
+                  </div>
+                  <div style={{background:incomingNewer?"#e8f5e9":"#f5f5f5",borderRadius:6,padding:10,border:incomingNewer?"2px solid #81c784":"1px solid #e0e0e0"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:incomingNewer?TEAL_DARK:"#555",marginBottom:4}}>
+                      File version {incomingNewer?"✓ NEWER":""}
+                    </div>
+                    <div style={{fontSize:11,color:"#666"}}>
+                      {incoming.stationIds.length} station(s)<br/>
+                      <span style={{fontSize:10}}>Last saved: {fmtDate(incoming.savedAt)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Resolution options */}
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {[
+                    {val:"keep",    label:"Keep your version",          desc:"Discard the file version, keep what you have"},
+                    {val:"replace", label:"Use file version",           desc:"Replace your version with the one from the file"},
+                    {val:"both",    label:"Keep both (add as new line)", desc:"Add the file version as a separate line with a copy suffix"},
+                  ].map(opt => (
+                    <label key={opt.val} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 10px",borderRadius:6,
+                        border:`2px solid ${res===opt.val?TEAL:"#e0e0e0"}`,background:res===opt.val?TEAL_LIGHT:"white",cursor:"pointer"}}>
+                      <input type="radio" name={`res_${existing.id}`} value={opt.val} checked={res===opt.val}
+                        onChange={()=>setRes(existing.id,opt.val)} style={{marginTop:2,accentColor:TEAL}}/>
+                      <div>
+                        <div style={{fontSize:12,fontWeight:600}}>{opt.label}</div>
+                        <div style={{fontSize:11,color:"#777"}}>{opt.desc}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        <div style={{padding:"12px 20px",borderTop:"1px solid #e0e0e0",display:"flex",gap:10,flexShrink:0}}>
+          <button onClick={onCancel}
+            style={{flex:1,background:"#f5f5f5",color:"#555",border:"1px solid #ddd",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13}}>
+            Cancel
+          </button>
+          <button onClick={()=>onResolve(resolutions)}
+            style={{flex:2,background:TEAL,color:"white",border:"none",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:700}}>
+            ✓ Apply & Add to Workspace
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Save Info Modal ──────────────────────────────────────────────────────────
 function SaveInfoModal({ onExport, onClose }) {
   return (
@@ -2921,6 +3120,92 @@ export default function App() {
   const [deletePrompt,   setDeletePrompt]   = useState(null); // {type, name, ids}
   const [showNewProject, setShowNewProject] = useState(false);
   const [csvPrompt,      setCsvPrompt]      = useState(null); // {baseName, onLink, onSkip}
+  const [mergePrompt,    setMergePrompt]    = useState(null); // {conflicts, nonConflicts, incomingStations}
+  const [fileConflict,   setFileConflict]   = useState(null); // {fileUpdatedAt, pendingSave}
+  const openedAtRef = useRef(null); // timestamp when current file was opened/last-saved
+
+  // Open a line file and merge into workspace
+  const openLineFile = async () => {
+    if(!window.showOpenFilePicker) return;
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        types:[{description:"SOP Builder Save File",accept:{"application/json":[".json"]}}],
+        multiple:false
+      });
+      const file = await handle.getFile();
+      loadFile(file, loaded => {
+        const incomingLines    = loaded.lines||[];
+        const incomingStations = loaded.stations||[];
+
+        if(incomingLines.length===0){
+          flash("No lines found in that file.");
+          return;
+        }
+
+        // Detect conflicts by line name (case-insensitive) as the shared identity key
+        const conflicts    = [];
+        const nonConflicts = [];
+        incomingLines.forEach(il => {
+          const match = lines.find(l => l.name.trim().toLowerCase() === (il.name||"").trim().toLowerCase());
+          if(match) conflicts.push({existing:match, incoming:il});
+          else nonConflicts.push(il);
+        });
+
+        setMergePrompt({conflicts, nonConflicts, incomingStations, incomingLines});
+      });
+    } catch(e){ if(e.name!=="AbortError") flash("Could not open file."); }
+  };
+
+  // Apply merge resolutions
+  const applyMerge = (resolutions) => {
+    if(!mergePrompt) return;
+    const {conflicts, nonConflicts, incomingStations, incomingLines} = mergePrompt;
+
+    let newStations = [...stations];
+    let newLines    = [...lines];
+
+    // Helper: add incoming stations for a line, remapping IDs to avoid collisions
+    const addStationsForLine = (incomingLine) => {
+      const idMap = {};
+      incomingLine.stationIds.forEach(oldId => {
+        const s = incomingStations.find(st => st.id===oldId);
+        if(!s) return;
+        const newS = {...s, id: Date.now()+Math.random()};
+        idMap[oldId] = newS.id;
+        newStations.push(migrateStation(newS));
+      });
+      return {...incomingLine, stationIds: incomingLine.stationIds.map(id=>idMap[id]||id)};
+    };
+
+    // Add non-conflicting lines
+    nonConflicts.forEach(il => {
+      const mapped = addStationsForLine(il);
+      newLines.push({...mapped, id: Date.now()+Math.random()});
+    });
+
+    // Resolve conflicts
+    conflicts.forEach(({existing, incoming}) => {
+      const res = resolutions[existing.id] || "keep";
+      if(res==="keep") {
+        // Do nothing — keep existing
+      } else if(res==="replace") {
+        // Remove existing stations, add incoming stations, replace line entry
+        newStations = newStations.filter(s => !existing.stationIds.includes(s.id));
+        const mapped = addStationsForLine(incoming);
+        newLines = newLines.map(l => l.id===existing.id ? {...mapped, id:existing.id} : l);
+      } else if(res==="both") {
+        // Keep existing, add incoming as a new line with copy suffix
+        const copy = {...incoming, name:(incoming.name||"Line")+" (imported)", id:Date.now()+Math.random()};
+        const mapped = addStationsForLine(copy);
+        newLines.push(mapped);
+      }
+    });
+
+    setStations(newStations);
+    setLines(newLines);
+    setMergePrompt(null);
+    flash(`✓ Merged ${nonConflicts.length + conflicts.length} line(s) into workspace`);
+  };
 
   // confirmDelete — stores type + ids, executes deletion with fresh state on confirm
   // ids: { lineId, stationId, taskIdx, stepIdx }  (only the relevant ones)
@@ -3036,10 +3321,35 @@ export default function App() {
           <button onClick={async()=>{
             lsSave(stations,lines);
             if(activeFileHandle || window.showSaveFilePicker) {
+              // Conflict check: if we have an active file handle, check if it was
+              // modified on disk since we opened/last-saved it
+              if(activeFileHandle) {
+                const diskState = await readFileSavedAt(activeFileHandle);
+                if(diskState && diskState.savedAt && openedAtRef.current &&
+                   diskState.savedAt > openedAtRef.current) {
+                  // File was updated by someone else since we opened it
+                  setFileConflict({
+                    fileUpdatedAt: diskState.savedAt,
+                    pendingSave: async () => {
+                      // Force-save, bypassing conflict check
+                      lsSave(stations,lines);
+                      await smartSave(stations, lines,
+                        `All_Lines_${new Date().toISOString().slice(0,10)}`,
+                        activeFileHandle,
+                        (h,n)=>{ setActiveFileHandle(h); setActiveFileName(n||""); },
+                        flash
+                      );
+                      openedAtRef.current = new Date().toISOString();
+                      setFileConflict(null);
+                    }
+                  });
+                  return; // Block the save — user must resolve conflict first
+                }
+              }
               await smartSave(stations, lines,
                 `All_Lines_${new Date().toISOString().slice(0,10)}`,
                 activeFileHandle,
-                (h,n)=>{ setActiveFileHandle(h); setActiveFileName(n||""); },
+                (h,n)=>{ setActiveFileHandle(h); setActiveFileName(n||""); if(h) openedAtRef.current=new Date().toISOString(); },
                 flash
               );
             } else {
@@ -3072,6 +3382,8 @@ export default function App() {
                   setActive(null);
                   setActiveFileName(file.name);
                   setActiveFileHandle(handle);
+                  // Record when we opened this file for conflict detection
+                  openedAtRef.current = new Date().toISOString();
                   flash(`✓ Opened: ${file.name}`);
 
                   // Show React modal to link companion CSV
@@ -3127,6 +3439,7 @@ export default function App() {
             setLineHandle={setLineHandle}
             flash={flash}
             confirmDelete={confirmDelete}
+            openLineFile={window.showOpenFilePicker ? openLineFile : null}
           />
         )}
 
@@ -3169,6 +3482,35 @@ export default function App() {
           </div>
         </div>
       )}
+      {fileConflict&&<FileConflictModal
+        fileName={activeFileName}
+        openedAt={openedAtRef.current}
+        fileUpdatedAt={fileConflict.fileUpdatedAt}
+        onOverwrite={fileConflict.pendingSave}
+        onMerge={async ()=>{
+          // Load the current file into the merge dialog
+          if(activeFileHandle){
+            const file = await activeFileHandle.getFile();
+            loadFile(file, loaded=>{
+              const conflicts=[], nonConflicts=[];
+              (loaded.lines||[]).forEach(il=>{
+                const match=lines.find(l=>l.name.trim().toLowerCase()===(il.name||"").trim().toLowerCase());
+                if(match) conflicts.push({existing:match,incoming:il});
+                else nonConflicts.push(il);
+              });
+              setMergePrompt({conflicts,nonConflicts,incomingStations:loaded.stations||[],incomingLines:loaded.lines||[]});
+              setFileConflict(null);
+            });
+          }
+        }}
+        onCancel={()=>setFileConflict(null)}
+      />}
+      {mergePrompt&&<MergeLineModal
+        conflicts={mergePrompt.conflicts}
+        nonConflicts={mergePrompt.nonConflicts}
+        onResolve={applyMerge}
+        onCancel={()=>setMergePrompt(null)}
+      />}
       {deletePrompt&&<ConfirmDeleteModal
         type={deletePrompt.type}
         name={deletePrompt.name}
