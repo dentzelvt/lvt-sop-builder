@@ -8,34 +8,20 @@
   :root { --teal:#00897b; --teal-dark:#00695c; --teal-light:#e0f2f1; }
   * { box-sizing:border-box; margin:0; padding:0; }
   body { font-family: Arial, sans-serif; font-size: 15px; color: #222; background: #f0f4f8; line-height: 1.7; }
-
-  /* ── Top bar ── */
-  .topbar {
-    background: var(--teal-dark); color: white;
-    padding: 12px 32px; display: flex; align-items: center;
-    justify-content: space-between; position: sticky; top: 0; z-index: 100;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-  }
+  .topbar { background: var(--teal-dark); color: white; padding: 12px 32px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
   .topbar .logo { background: var(--teal); padding: 3px 12px; border-radius: 4px; font-weight: 900; font-size: 17px; letter-spacing: 1px; margin-right: 12px; }
   .topbar .title { font-weight: 700; font-size: 15px; }
   .topbar a { color: rgba(255,255,255,0.8); text-decoration: none; font-size: 13px; }
   .topbar a:hover { color: white; }
-
-  /* ── Layout ── */
   .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 80px; }
-
-  /* ── Table of contents ── */
   .toc { background: white; border-radius: 10px; padding: 20px 24px; margin-bottom: 32px; border-left: 4px solid var(--teal); box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
   .toc h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--teal-dark); margin-bottom: 12px; }
   .toc ol { padding-left: 20px; }
   .toc li { margin-bottom: 5px; }
   .toc a { color: var(--teal-dark); text-decoration: none; font-size: 14px; }
   .toc a:hover { text-decoration: underline; }
-
-  /* ── Content cards ── */
   .section { background: white; border-radius: 10px; padding: 28px 32px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); }
   h1 { font-size: 26px; color: var(--teal-dark); margin-bottom: 6px; }
-  .subtitle { font-size: 14px; color: #888; margin-bottom: 0; }
   h2 { font-size: 19px; color: var(--teal-dark); margin: 0 0 14px; padding-bottom: 8px; border-bottom: 2px solid var(--teal-light); }
   h3 { font-size: 15px; color: #333; margin: 20px 0 8px; font-weight: 700; }
   p { margin-bottom: 12px; color: #444; }
@@ -43,28 +29,21 @@
   li { margin-bottom: 5px; }
   code { background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 3px; padding: 1px 5px; font-family: monospace; font-size: 13px; color: var(--teal-dark); }
   strong { color: #222; }
-
-  /* ── Tables ── */
   table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 13px; }
   th { background: var(--teal); color: white; padding: 8px 12px; text-align: left; font-weight: 600; }
   td { padding: 7px 12px; border-bottom: 1px solid #eee; vertical-align: top; }
   tr:nth-child(even) td { background: #fafafa; }
-
-  /* ── Tips box ── */
   .tip { background: #fff8e1; border-left: 4px solid #ffc107; border-radius: 0 6px 6px 0; padding: 10px 16px; margin: 12px 0; font-size: 14px; color: #555; }
   .tip strong { color: #e65100; }
-
-  /* ── Icon badge ── */
+  .warn { background: #ffebee; border-left: 4px solid #ef5350; border-radius: 0 6px 6px 0; padding: 10px 16px; margin: 12px 0; font-size: 14px; color: #555; }
+  .warn strong { color: #c62828; }
+  .info { background: var(--teal-light); border-left: 4px solid var(--teal); border-radius: 0 6px 6px 0; padding: 10px 16px; margin: 12px 0; font-size: 14px; color: #333; }
   .icon-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
   .icon-badge { display: inline-flex; align-items: center; gap: 6px; background: var(--teal-light); border: 1px solid #80cbc4; border-radius: 20px; padding: 4px 12px; font-size: 13px; color: var(--teal-dark); }
-
-  /* ── Hierarchy diagram ── */
   .hierarchy { display: flex; align-items: center; gap: 0; margin: 16px 0; flex-wrap: wrap; }
   .hier-box { background: var(--teal); color: white; border-radius: 6px; padding: 8px 16px; font-weight: 700; font-size: 14px; text-align: center; }
   .hier-arrow { color: #bbb; font-size: 20px; padding: 0 8px; }
   .hier-sub { font-size: 11px; font-weight: 400; opacity: 0.85; display: block; }
-
-  /* ── Back to top ── */
   .back-top { position: fixed; bottom: 28px; right: 28px; background: var(--teal); color: white; border: none; border-radius: 50%; width: 44px; height: 44px; font-size: 20px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; text-decoration: none; }
 </style>
 </head>
@@ -80,25 +59,24 @@
 
 <div class="container">
 
-  <!-- Hero -->
   <div class="section" style="background:linear-gradient(135deg,#00695c,#00897b);color:white;padding:36px 32px;">
     <h1 style="color:white;font-size:30px;margin-bottom:8px;">LVT SOP Builder</h1>
-    <p class="subtitle" style="color:rgba(255,255,255,0.85);font-size:16px;margin:0;">Complete User Guide — Creating and Managing Standard Operating Procedures</p>
+    <p style="color:rgba(255,255,255,0.85);font-size:16px;margin:0;">Complete User Guide — Creating and Managing Standard Operating Procedures</p>
   </div>
 
-  <!-- TOC -->
   <div class="toc">
     <h2>Contents</h2>
     <ol>
-      <li><a href="#overview">Overview & Navigation</a></li>
+      <li><a href="#overview">Overview &amp; Navigation</a></li>
       <li><a href="#lines">Lines</a></li>
       <li><a href="#stations">Stations</a></li>
       <li><a href="#tasks">Tasks</a></li>
       <li><a href="#steps">Steps</a></li>
-      <li><a href="#preview">Preview & PDF Export</a></li>
+      <li><a href="#preview">Preview &amp; PDF Export</a></li>
       <li><a href="#balance">Line Balance</a></li>
-      <li><a href="#saving">Saving & Loading</a></li>
-      <li><a href="#tips">Tips & Best Practices</a></li>
+      <li><a href="#saving">Saving &amp; Loading</a></li>
+      <li><a href="#collaboration">Collaboration &amp; Multi-User</a></li>
+      <li><a href="#tips">Tips &amp; Best Practices</a></li>
     </ol>
   </div>
 
@@ -115,7 +93,7 @@
       <span class="hier-arrow">→</span>
       <div class="hier-box">🔢 Step<span class="hier-sub">Instruction</span></div>
     </div>
-    <h3>Top Navigation Tabs</h3>
+    <h3>Navigation Tabs</h3>
     <ul>
       <li><strong>🏗️ Lines</strong> — Primary workspace. Create lines, build stations, author all SOP content.</li>
       <li><strong>📊 Line Balance</strong> — Analyze and compare cycle times across stations or tasks.</li>
@@ -123,41 +101,70 @@
     <h3>Top Bar Actions</h3>
     <table>
       <tr><th>Button</th><th>Action</th></tr>
-      <tr><td><code>💾 Save</code></td><td>Smart save — writes back to the currently open file silently, or opens a Save As dialog on first use. Always saves both a <code>.json</code> and a <code>.csv</code> backup.</td></tr>
-      <tr><td><code>⬇️ Export Save</code></td><td>Create a new dated snapshot — choose All Lines or a Single Line. Opens a Save As dialog on Chrome/Edge.</td></tr>
+      <tr><td><code>💾 Save</code></td><td>Smart save — writes back to the currently linked file silently, or opens a Save As dialog on first use. Always saves both a <code>.json</code> and a <code>.csv</code> backup.</td></tr>
+      <tr><td><code>⬇️ Export Save</code></td><td>Create a new dated snapshot — choose All Lines or a Single Line.</td></tr>
       <tr><td><code>📥 Import</code></td><td>Selectively import stations, tasks, or steps from a saved file without replacing your current project.</td></tr>
       <tr><td><code>📂 Open File</code></td><td>Open a saved <code>.json</code> as a working file — subsequent saves write back to it directly.</td></tr>
       <tr><td><code>📄 All PDFs</code></td><td>Export PDFs for every station in the project.</td></tr>
+      <tr><td><code>🆕 New Project</code></td><td>Clear the workspace and start fresh. Shows a confirmation warning first.</td></tr>
       <tr><td><code>❓ Help</code></td><td>Open this user guide.</td></tr>
     </table>
+    <h3>Linked File Display</h3>
+    <p>When a file is linked via Open File, the nav bar shows the connected files as a pill:</p>
+    <p><code>📄 All_Lines_2026-06-24.json ✕ + 📊 All_Lines_2026-06-24.csv ✕</code></p>
+    <ul>
+      <li>Click <strong>✕</strong> next to the JSON → disconnects both files</li>
+      <li>Click <strong>✕</strong> next to the CSV → disconnects only the CSV (JSON stays linked; next Save will prompt for a new CSV location)</li>
+    </ul>
+    <div class="tip"><strong>Browser refresh:</strong> Your workspace data is preserved through a refresh via auto-save. However, file handle connections are lost — you'll need to click 📂 Open File again to re-link your file after a refresh.</div>
   </div>
 
   <!-- 2. Lines -->
   <div class="section" id="lines">
     <h2>2. Lines</h2>
-    <p>A Line represents a production line and groups stations together in order. The Line Name appears in every SOP header.</p>
+    <p>A Line represents a production line and groups stations together in order. The Line Name appears in every SOP PDF header.</p>
     <h3>Creating a Line</h3>
     <ol>
       <li>Click <strong>+ New Line</strong>.</li>
-      <li>Enter a <strong>Line Name</strong> — e.g. <code>Powder Coat</code>. This appears in all SOP PDF headers.</li>
-      <li>Enter a <strong>Station Identifier</strong> — e.g. <code>PWD-WIP</code>. This becomes the prefix for all station numbers on this line.</li>
+      <li>Enter a <strong>Line Name</strong> — e.g. <code>Powder Coat</code>.</li>
+      <li>Enter a <strong>Station Identifier</strong> — e.g. <code>PWD-WIP</code>. This becomes the prefix for auto-generated station numbers.</li>
       <li>Optionally add a Description.</li>
     </ol>
-    <div class="tip"><strong>Auto-Numbering:</strong> Once a Station Identifier is set, every station added to the line receives an automatic Station No. — <code>PWD-WIP-01</code>, <code>PWD-WIP-02</code>, etc. Numbers reassign automatically when you reorder stations.</div>
-    <h3>Line Actions (header bar buttons)</h3>
+    <div class="tip"><strong>Auto-Numbering:</strong> Once a Station Identifier is set, every station added to the line receives an automatic Station No. — <code>PWD-WIP-01</code>, <code>PWD-WIP-02</code>, etc. Numbers reassign automatically when you reorder stations. The Station No. on each station is still editable if you need to override it.</div>
+    <h3>Line Header Bar Buttons</h3>
     <table>
       <tr><th>Button</th><th>Action</th></tr>
       <tr><td><code>+ Station</code></td><td>Create a new station and add it to this line</td></tr>
-      <tr><td><code>💾 Save</code></td><td>Export just this line as a .json file</td></tr>
+      <tr><td><code>💾 Save</code></td><td>Save just this line to a file. When linked, shows the filename badge with a ✕ to disconnect.</td></tr>
       <tr><td><code>📄 All PDFs</code></td><td>Export a PDF for every station in this line</td></tr>
-      <tr><td><code>✕</code></td><td>Delete the line (stations are not deleted, just unassigned)</td></tr>
+      <tr><td><code>✕</code></td><td>Delete the line (with confirmation). Station data is not deleted — stations become unassigned.</td></tr>
     </table>
+    <h3>Line File Badge</h3>
+    <p>When a line has a linked save file, a badge appears next to its 💾 Save button showing the filename and a ✕ to disconnect:</p>
+    <p><code>💾 Save | Powder_Coat_2026-06-24.json ✕</code></p>
+    <p>Click ✕ on the badge to unlink — the line stays in the workspace but the next Save will prompt for a new file location.</p>
     <h3>Managing Stations in a Line</h3>
     <ul>
       <li>Drag the <strong>⠿</strong> handle to reorder stations. Station numbers update automatically.</li>
-      <li>Click <strong>Remove from line</strong> to detach a station without deleting it.</li>
       <li>Use the <strong>Add existing station</strong> dropdown at the bottom to pull in a station that already exists in the project.</li>
+      <li>Delete a station using the <strong>✕</strong> button on its header (confirmation required).</li>
     </ul>
+    <h3>📥 Add Line from File</h3>
+    <p>The <strong>📥 Add Line from File</strong> button (next to + New Line) lets you merge lines from a saved file into your current workspace without replacing anything. This is the recommended way to bring in work from another user's file.</p>
+    <ol>
+      <li>Click <strong>📥 Add Line from File</strong>.</li>
+      <li>Select a <code>.json</code> save file.</li>
+      <li>New lines are added automatically.</li>
+      <li>If a line with the same name already exists, a <strong>conflict resolution modal</strong> appears — see the Collaboration section for details.</li>
+    </ol>
+    <h3>🔄 Version Check on Open</h3>
+    <p>When a line has a linked file and you click its header to expand it, the app silently checks whether the file has been updated since you last loaded it. If it has, a prompt appears:</p>
+    <ul>
+      <li><strong>🔄 Reload from file</strong> — replaces the line's stations with the latest version from the file</li>
+      <li><strong>Continue with my version</strong> — opens the line as-is (you are working from an older version)</li>
+      <li><strong>Cancel</strong> — leaves the line collapsed</li>
+    </ul>
+    <div class="tip">This check only happens when you intentionally open a line to edit it — not on every page load.</div>
   </div>
 
   <!-- 3. Stations -->
@@ -167,18 +174,18 @@
     <h3>Station Fields</h3>
     <table>
       <tr><th>Field</th><th>Description</th></tr>
-      <tr><td>Station No.</td><td>Auto-assigned from Line Identifier + position. Read-only when a Line Identifier is set.</td></tr>
-      <tr><td>Station Description</td><td>Short name — e.g. BATTERY, IR OVEN. Appears in the SOP header.</td></tr>
+      <tr><td>Station No.</td><td>Editable. Auto-populated from Line Identifier + position (e.g. <code>PWD-WIP-02</code>). Can be overridden per station. The SOP ID updates live as you type.</td></tr>
+      <tr><td>Station Description</td><td>Short name — e.g. BATTERY, IR OVEN. Appears in the SOP header and PDF filename.</td></tr>
       <tr><td>ASM Version</td><td>Assembly version number.</td></tr>
-      <tr><td>Revised By</td><td>Author name. Pre-populates revision log entries.</td></tr>
+      <tr><td>Revised By</td><td>Author name. Pre-populates the Revised By field in all revision log entries.</td></tr>
       <tr><td>SOP Revision</td><td>Managed by the Revision Log — read-only here.</td></tr>
       <tr><td>Generated SOP ID</td><td>Auto-generated — e.g. <code>PWD-WIP-02-V2.A</code>. Read-only.</td></tr>
       <tr><td>Purpose</td><td>What this SOP covers.</td></tr>
       <tr><td>Safety Summary</td><td>PPE and safety requirements.</td></tr>
       <tr><td>Tools &amp; Equipment</td><td>Structured list — see below.</td></tr>
       <tr><td>Revision Log</td><td>Automated revision history — see below.</td></tr>
-      <tr><td>General Notes</td><td>Task ordering notes and general information. Auto-expands as you type.</td></tr>
-      <tr><td>Applicable Drawings</td><td>Drawing number + description pairs. Used as dropdowns at task and step level.</td></tr>
+      <tr><td>General Notes</td><td>Task ordering notes. Auto-expands as you type.</td></tr>
+      <tr><td>Applicable Drawings</td><td>Drawing number + description pairs. Referenced as dropdowns at task and step level.</td></tr>
     </table>
     <h3>Tools &amp; Equipment List</h3>
     <ul>
@@ -188,17 +195,18 @@
     <h3>Revision Log</h3>
     <ul>
       <li>Rev A — Initial Release is pre-seeded on every new station.</li>
-      <li>Click <strong>+ New Revision (B)</strong> to create a new revision. You'll be prompted for the revision letter (editable — can skip to C, or use AA), date, author, and a description of changes.</li>
+      <li>Click <strong>+ New Revision</strong> to add a new revision. The dialog prompts for revision letter (defaults to next letter, editable), date (defaults to today), Revised By (pre-filled from the station field), and a description.</li>
       <li>Every revision dialog shows a ⚠️ Windchill upload reminder.</li>
-      <li>Click ✏️ on any entry to edit it. Editing requires confirming a Windchill checkbox.</li>
+      <li>Click ✏️ on any entry to edit its description and Revised By. Editing requires confirming a Windchill checkbox.</li>
     </ul>
     <h3>Station Actions</h3>
     <table>
       <tr><th>Button</th><th>Action</th></tr>
       <tr><td><code>👁 Preview</code></td><td>Open full-page preview matching the PDF layout exactly</td></tr>
-      <tr><td><code>📄 PDF</code></td><td>Open browser print dialog for PDF export</td></tr>
-      <tr><td><code>💾 Save</code></td><td>Save just this station as <code>SOP_ID_Description.json</code></td></tr>
+      <tr><td><code>📄 PDF</code></td><td>Open browser print dialog. PDF filename is auto-named <code>SopID_StationDescription</code>.</td></tr>
+      <tr><td><code>✕</code></td><td>Delete the station (with confirmation). All tasks and steps are permanently deleted.</td></tr>
     </table>
+    <div class="tip"><strong>Delete confirmation:</strong> All deletions — lines, stations, tasks, and steps — require a confirmation. The modal describes what will be deleted and cannot be undone.</div>
   </div>
 
   <!-- 4. Tasks -->
@@ -212,9 +220,9 @@
       <tr><td>Task ID</td><td>Auto-generated — e.g. <code>PWD-WIP-02.A-01</code>.</td></tr>
       <tr><td>Task Description</td><td>All-caps description of the task.</td></tr>
       <tr><td>General Notes</td><td>Task-level notes. Auto-expands as you type.</td></tr>
-      <tr><td>Est. Cycle Time</td><td>Auto-calculated sum of all step cycle times.</td></tr>
-      <tr><td>🔧 Tools Used</td><td>Multi-select dropdown from the station's tool list.</td></tr>
-      <tr><td>📐 Drawings</td><td>Multi-select dropdown from the station's drawings table.</td></tr>
+      <tr><td>Est. Cycle Time</td><td>Auto-calculated sum of all step cycle times, displayed as <code>MM:SS min</code>.</td></tr>
+      <tr><td>🔧 Tools Used</td><td>Multi-select from the station's tool list.</td></tr>
+      <tr><td>📐 Drawings</td><td>Multi-select from the station's drawings table.</td></tr>
       <tr><td>Images</td><td>Upload one or more reference images.</td></tr>
     </table>
     <h3>Task Actions</h3>
@@ -222,7 +230,7 @@
       <li><strong>⠿</strong> Drag handle — reorder tasks within the station.</li>
       <li><strong>↪ Move Task</strong> — move the entire task to a different station.</li>
       <li><strong>▼ / ▶</strong> — collapse or expand the task.</li>
-      <li><strong>✕</strong> — delete the task.</li>
+      <li><strong>✕</strong> — delete the task (confirmation required).</li>
     </ul>
   </div>
 
@@ -233,17 +241,24 @@
     <h3>Step Fields</h3>
     <table>
       <tr><th>Field</th><th>Description</th></tr>
-      <tr><td>Step Number</td><td>Optional. Toggle with "Step Numbers" checkbox. Editable.</td></tr>
-      <tr><td>Icons</td><td>Dropdown — select one or more safety/reference icons (hold Ctrl/Cmd for multiple).</td></tr>
-      <tr><td>Cycle Time</td><td>Time in minutes for this step. Rolls up to task total.</td></tr>
-      <tr><td>Description</td><td>Main step instruction. Supports bold and italic formatting.</td></tr>
+      <tr><td>Step Number</td><td>Optional. Toggle with the "Step Numbers" checkbox on the task. The setting persists to the PDF.</td></tr>
+      <tr><td>Icons</td><td>Multi-select safety/reference icons. See legend below.</td></tr>
+      <tr><td>Cycle Time</td><td>Enter as <strong>seconds</strong> (plain number, e.g. <code>90</code>) or <strong>MM:SS</strong> (e.g. <code>1:30</code>). Both are automatically converted and summed in <code>MM:SS min</code> format.</td></tr>
+      <tr><td>Description</td><td>Main step instruction. Supports <strong>bold</strong> and <em>italic</em> formatting.</td></tr>
       <tr><td>Key Point / NOTE</td><td>Yellow-highlighted note line. Also supports bold/italic.</td></tr>
-      <tr><td>🔧 Tools</td><td>Multi-select from station tool list. Only shown if tools are defined.</td></tr>
+      <tr><td>🔧 Tools</td><td>Multi-select from station tool list. Only shown if tools are defined on the station.</td></tr>
       <tr><td>📐 Drawings</td><td>Multi-select from station drawings. Only shown if drawings are defined.</td></tr>
-      <tr><td>Image</td><td>Upload a single reference image for this step.</td></tr>
+      <tr><td>Image</td><td>Upload a single reference image.</td></tr>
     </table>
-    <h3>Formatting Text</h3>
-    <p>Select text in the description field, then click <strong>B</strong> for bold or <strong>I</strong> for italic in the toolbar above the field. Formatting renders in both the preview and the PDF.</p>
+    <h3>Cycle Time Input</h3>
+    <p>The cycle time field accepts two formats:</p>
+    <ul>
+      <li><strong>Plain number</strong> — interpreted as seconds. Enter <code>90</code> → stored as 1 min 30 sec → displays as <code>1:30 min</code></li>
+      <li><strong>MM:SS</strong> — enter <code>1:30</code> → 1 minute 30 seconds → displays as <code>1:30 min</code></li>
+    </ul>
+    <p>All task and station totals display in <code>MM:SS min</code> format.</p>
+    <h3>Bold and Italic Formatting</h3>
+    <p>Select text in the description or key point field, then click <strong>B</strong> (bold) or <strong>I</strong> (italic) in the toolbar above the field. Formatting renders correctly in both the preview and the PDF.</p>
     <h3>Safety Icons</h3>
     <div class="icon-row">
       <span class="icon-badge">⚠️ Warning</span>
@@ -259,28 +274,28 @@
       <li><strong>⠿</strong> Drag handle — reorder steps.</li>
       <li><strong>↑ / ↓</strong> — move step up or down one position.</li>
       <li><strong>↪ Move</strong> — move the step to any task in any station.</li>
-      <li><strong>✕</strong> — delete the step.</li>
+      <li><strong>✕</strong> — delete the step (confirmation required).</li>
     </ul>
   </div>
 
   <!-- 6. Preview & PDF -->
   <div class="section" id="preview">
     <h2>6. Preview &amp; PDF Export</h2>
-    <h3>Preview</h3>
-    <p>Click <strong>👁 Preview</strong> on any station to open a full-screen view that renders the SOP exactly as it will print — white 8.5×11 pages on a dark background.</p>
-    <p>The preview includes:</p>
+    <p>Click <strong>👁 Preview</strong> on any station to open a full-screen view rendering the SOP exactly as it will print.</p>
+    <p>The SOP includes:</p>
     <ul>
-      <li><strong>Cover page</strong> — Purpose, Safety Summary, Applicable Drawings, Tools &amp; Equipment, Revision Log, Table of Contents, and Icon Legend.</li>
+      <li><strong>Cover page</strong> — Purpose, Safety Summary, Drawings, Tools &amp; Equipment, Revision Log, Table of Contents, and Icon Legend.</li>
       <li><strong>One page per task</strong> — header, general notes, cycle time, tools/drawings used, and step table.</li>
-      <li><strong>Continuation headers</strong> — when a task spans multiple pages, the task ID and description repeat at the top of each overflow page.</li>
-      <li><strong>Footer on every physical page</strong> — Left: Company/Author · Center: Page X of Y · Right: SOP ID and Effective Date.</li>
+      <li><strong>Continuation headers</strong> — task ID and description repeat at the top of each overflow page.</li>
+      <li><strong>Footer on every page</strong> — Left: Company/Author · Center: Page X of Y · Right: SOP ID and Date.</li>
     </ul>
     <h3>Exporting to PDF</h3>
     <ol>
-      <li>Click <strong>📄 PDF</strong> on the station, or <strong>Print / Save PDF</strong> inside the Preview.</li>
+      <li>Click <strong>📄 PDF</strong> on the station header.</li>
       <li>In the print dialog, set Destination to <strong>Save as PDF</strong>.</li>
       <li>Confirm paper size is <strong>Letter (8.5×11)</strong> and layout is <strong>Portrait</strong>.</li>
     </ol>
+    <p>The suggested PDF filename is auto-named from the SOP ID and station description — e.g. <code>PWD-WIP-01.A_RACKING_LOADING</code>.</p>
     <div class="tip"><strong>Color tip:</strong> In Chrome/Edge, enable "Background graphics" in print settings to preserve the teal header colors in the PDF.</div>
   </div>
 
@@ -297,157 +312,147 @@
     <h3>Reading the Chart</h3>
     <ul>
       <li>Each bar = one station (or task in single-station mode).</li>
-      <li>The <span style="color:#ff6f00;font-weight:700;">orange line</span> = average cycle time (takt reference).</li>
-      <li><span style="color:#e53935;font-weight:700;">Red bars</span> = stations more than 10% over the average — rebalancing candidates.</li>
+      <li>The <span style="color:#ff6f00;font-weight:700;">orange line</span> = average cycle time.</li>
+      <li><span style="color:#e53935;font-weight:700;">Red bars</span> = more than 10% over average — rebalancing candidates.</li>
     </ul>
-    <p>Click <strong>⬇️ Export CSV</strong> to download the current view as a spreadsheet.</p>
+    <p>Click <strong>⬇️ Export CSV</strong> to download the current scope as a spreadsheet.</p>
   </div>
 
   <!-- 8. Saving & Loading -->
   <div class="section" id="saving">
     <h2>8. Saving &amp; Loading</h2>
+    <p>Every 💾 Save — at either scope — automatically writes <strong>two files</strong>: a <code>.json</code> project file and a <code>.csv</code> human-readable backup with the same base name.</p>
 
-    <p>The SOP Builder offers three save methods. Every 💾 Save — at any level — automatically writes <strong>two files</strong>: a <code>.json</code> project file and a <code>.csv</code> backup, both with the same base name in the same folder.</p>
-
-    <!-- Recommended workflow callout -->
     <div style="background:linear-gradient(135deg,#00695c,#00897b);color:white;border-radius:10px;padding:20px 24px;margin:16px 0 24px;">
       <div style="font-weight:700;font-size:15px;margin-bottom:10px;">⭐ Recommended Workflow — Open File Mode</div>
       <ol style="padding-left:20px;color:rgba(255,255,255,0.92);line-height:1.9;">
-        <li>Store your <code style="background:rgba(255,255,255,0.15);border:none;color:white;">.json</code> project file in a shared folder — Google Drive, OneDrive, SharePoint, or a network drive</li>
+        <li>Store your <code style="background:rgba(255,255,255,0.15);border:none;color:white;">.json</code> file in a shared folder — Google Drive, OneDrive, SharePoint, or a network drive</li>
         <li>Click <strong>📂 Open File</strong> and navigate to that file</li>
         <li>Work normally — edit lines, stations, tasks, steps</li>
-        <li>Click <strong>💾 Save</strong> — writes both the <code>.json</code> and <code>.csv</code> back to the same location silently</li>
-        <li>Team members open the same file from the shared folder to pick up where you left off</li>
+        <li>Click <strong>💾 Save</strong> — writes both <code>.json</code> and <code>.csv</code> back to the same location silently</li>
+        <li>Team members open the same file from the shared folder to continue where you left off</li>
       </ol>
     </div>
 
     <h3>The Two Files — JSON and CSV</h3>
-    <p>Every save produces two files with the same base name:</p>
     <table>
-      <tr><th>File</th><th>Purpose</th><th>Can be opened with</th></tr>
-      <tr>
-        <td><code>Powder_Coat_2026-06-17.json</code></td>
-        <td>Full project file — loads back into the SOP Builder with all data, images, structure, and settings intact</td>
-        <td>SOP Builder (📂 Open File)</td>
-      </tr>
-      <tr>
-        <td><code>Powder_Coat_2026-06-17.csv</code></td>
-        <td>Human-readable backup — every station, task, step, cycle time, safety icons, key points, and drawings in a flat spreadsheet. Readable without the app.</td>
-        <td>Excel, Google Sheets, any spreadsheet app</td>
-      </tr>
+      <tr><th>File</th><th>Purpose</th><th>Opens with</th></tr>
+      <tr><td><code>.json</code></td><td>Full project file — all data, images, structure, settings intact</td><td>SOP Builder (📂 Open File)</td></tr>
+      <tr><td><code>.csv</code></td><td>Human-readable backup — every station, task, step, cycle times, icons. Readable without the app.</td><td>Excel, Google Sheets</td></tr>
     </table>
-    <div class="tip">
-      <strong>Why two files?</strong> The <code>.json</code> is the working file — it contains everything including images. The <code>.csv</code> is your insurance policy — if the app were ever unavailable, all your SOP content is readable in a spreadsheet. Future versions of the app will support importing from CSV.
-    </div>
 
-    <h3>Method 1 — Open File Mode (Recommended)</h3>
-    <p>Open a file once, save back to it as many times as you want — just like a traditional desktop app.</p>
+    <h3>Method 1 — Open File Mode</h3>
     <ol>
-      <li>Click <strong>📂 Open File</strong> in the top nav bar.</li>
-      <li>Navigate to your <code>.json</code> file — desktop, network drive, or Google Drive / OneDrive sync folder.</li>
-      <li>The filename appears in the nav bar: <code>📄 Powder_Coat_2026-06-17.json ✕</code></li>
-      <li>Make your changes.</li>
-      <li>Click <strong>💾 Save</strong> — writes both <code>.json</code> and <code>.csv</code> silently. Confirmation flashes: <em>✓ Saved → Powder_Coat_2026-06-17.json + .csv</em></li>
+      <li>Click <strong>📂 Open File</strong>.</li>
+      <li>Navigate to your <code>.json</code> file.</li>
+      <li>A modal asks if you want to also link the companion <code>.csv</code> — click <strong>📂 Browse for CSV file</strong> to link it, or <strong>Skip</strong> to set it on first save.</li>
+      <li>The filename appears in the nav bar. Make changes.</li>
+      <li>Click <strong>💾 Save</strong> — writes both files silently. Flash confirms: <em>✓ Saved → filename.json + .csv</em></li>
     </ol>
+    <div class="tip"><strong>First save without a file linked:</strong> Two Save As dialogs open in sequence — first for the JSON, then for the CSV. Navigate both to the same folder. After that, all saves are silent.</div>
+    <div class="tip"><strong>Disconnecting files:</strong> Click ✕ next to the filename in the nav bar. The JSON and CSV each have their own ✕ so you can disconnect them independently.</div>
 
-    <h3>First Save — What to Expect</h3>
-    <p>The very first time you save after opening the app (or after clicking ✕ to close a file connection), two dialogs appear in sequence:</p>
-    <ol>
-      <li><strong>Save As — JSON:</strong> Choose a folder and confirm the filename (e.g. <code>Powder_Coat_2026-06-17.json</code>)</li>
-      <li><strong>Save As — CSV:</strong> Immediately after, a second dialog opens pre-filled with the same base name as <code>.csv</code> — navigate to the same folder and click Save</li>
-    </ol>
-    <p>After that, both files update silently on every subsequent 💾 Save — no more dialogs until you close the connection.</p>
-    <div class="tip">
-      <strong>Works with Google Drive, OneDrive, SharePoint:</strong> Use their desktop sync app (Google Drive for Desktop, OneDrive sync) so files appear as a regular folder. Save writes back to the synced folder, which uploads to the cloud automatically.
-    </div>
-    <div class="tip">
-      <strong>Not simultaneous editing:</strong> One person at a time should have the file open and be saving. Treat it like a shared Excel file — coordinate with your team on who is editing.
-    </div>
-    <div class="tip">
-      <strong>To close the file connection:</strong> Click the <strong>✕</strong> next to the filename in the nav bar. Your data stays in the browser — you're just no longer linked to that file.
-    </div>
-
-    <h3>Save Scopes — Nav vs Line</h3>
+    <h3>Save Scopes</h3>
     <table>
       <tr><th>Button</th><th>What's saved</th><th>Default filename</th></tr>
-      <tr>
-        <td>Nav <code>💾 Save</code></td>
-        <td>Everything — all lines and all stations</td>
-        <td><code>All_Lines_YYYY-MM-DD</code></td>
-      </tr>
-      <tr>
-        <td>Line <code>💾 Save</code> (on line header bar)</td>
-        <td>That line and its stations only</td>
-        <td><code>LineName_YYYY-MM-DD</code></td>
-      </tr>
+      <tr><td>Nav <code>💾 Save</code></td><td>Everything — all lines and stations</td><td><code>All_Lines_YYYY-MM-DD</code></td></tr>
+      <tr><td>Line <code>💾 Save</code></td><td>That line and its stations only</td><td><code>LineName_YYYY-MM-DD</code></td></tr>
     </table>
-    <p>Each scope remembers its own file handle independently — you can have the full project linked to one file and a single line linked to a separate file at the same time.</p>
+    <p>Each scope has its own independent file link — you can have the full project linked to one file and a single line linked to a separate file simultaneously.</p>
 
     <h3>Method 2 — Export Save (Snapshots)</h3>
-    <p>Creates a new dated file — useful for version snapshots before major changes, or distributing a copy to someone else.</p>
-    <p>Click <strong>⬇️ Export Save</strong> to open the export dialog:</p>
-    <ul>
-      <li><strong>All Lines</strong> → saves as <code>All_Lines_YYYY-MM-DD.json</code></li>
-      <li><strong>Single Line</strong> → saves as <code>LineName_YYYY-MM-DD.json</code></li>
-    </ul>
-    <p>On Chrome/Edge a Save As dialog lets you choose the folder. On other browsers the file goes to the default Downloads folder.</p>
+    <p>Click <strong>⬇️ Export Save</strong> to create a new dated file. Choose <strong>All Lines</strong> or a <strong>Single Line</strong>. Use this for version snapshots before major changes or to distribute a copy.</p>
 
     <h3>Method 3 — Auto-Save (Safety Net Only)</h3>
-    <p>The app automatically saves to <strong>browser localStorage</strong> on every change. Closing and reopening the tab restores your work automatically.</p>
-    <div class="tip" style="border-left-color:#e53935;">
-      <strong style="color:#c62828;">⚠️ Do not rely on auto-save as your primary save.</strong> localStorage is wiped if you clear browser cache, use a different browser, or switch computers. Always use Open File Mode as your primary workflow.
-    </div>
+    <p>The app saves to browser localStorage on every change. Refreshing or reopening the tab restores the workspace automatically.</p>
+    <div class="warn"><strong>⚠️ Do not rely on auto-save as your primary save.</strong> localStorage is wiped if you clear browser cache, use a different browser, or switch computers. File handle connections are also lost on refresh — re-open your file with 📂 Open File after refreshing.</div>
 
-    <h3>📂 Open File vs Legacy Fallback</h3>
-    <table>
-      <tr><th></th><th>📂 Open File (Chrome / Edge)</th><th>Legacy fallback (all browsers)</th></tr>
-      <tr><td>Save behavior</td><td>Writes back to same file silently</td><td>Downloads a new file each time</td></tr>
-      <tr><td>CSV backup</td><td>Written to same folder silently after first prompt</td><td>Downloaded to Downloads folder</td></tr>
-      <tr><td>Creates new files?</td><td>No — edits in place</td><td>Yes — new file each export</td></tr>
-      <tr><td>Works with shared drives?</td><td>Yes — via desktop sync folder</td><td>Yes — but manual copy back required</td></tr>
-    </table>
-
-    <h3>📥 Import Wizard (Selective)</h3>
-    <p>Click <strong>📥 Import</strong> to cherry-pick content from any save file — without replacing your current project.</p>
+    <h3>📥 Import Wizard</h3>
+    <p>Click <strong>📥 Import</strong> to cherry-pick content from any save file without replacing your current project.</p>
     <ol>
       <li><strong>Pick file</strong> — supports both old format (stations only) and new format (lines + stations).</li>
-      <li><strong>Select items</strong> — check individual stations, tasks, or steps in a tree view. Selecting a full station includes all its tasks and steps automatically.</li>
+      <li><strong>Select items</strong> — check individual stations, tasks, or steps. Selecting a full station includes all its tasks and steps automatically.</li>
       <li><strong>Assign destinations</strong> — choose which line to add imported stations to. Assign orphan tasks/steps to existing stations and tasks.</li>
     </ol>
-    <p>Imported items receive new IDs so they never conflict with existing content.</p>
   </div>
 
-  <!-- 9. Tips -->
+  <!-- 9. Collaboration -->
+  <div class="section" id="collaboration">
+    <h2>9. Collaboration &amp; Multi-User</h2>
+    <p>The SOP Builder does not have real-time simultaneous editing (like Google Docs). Instead it uses a <strong>file-based coordination model</strong> — similar to a shared Excel file on a network drive. The tools below protect against accidental overwrites and make merging straightforward.</p>
+
+    <div class="info"><strong>The basic rule:</strong> One person edits and saves at a time. The tools below tell you when someone else has saved changes and give you options to resolve conflicts before overwriting.</div>
+
+    <h3>⚠️ File Conflict Detection (Save Protection)</h3>
+    <p>When you click 💾 Save and the app is in Open File Mode, it reads the current file from disk before writing. If the file's <code>savedAt</code> timestamp is newer than when you opened it, a <strong>warning modal blocks the save</strong>:</p>
+    <ul>
+      <li>Shows <em>You opened it at: 2:00 PM</em> vs <em>File last saved at: 3:00 PM</em></li>
+      <li><strong>📥 Review file changes before saving</strong> — opens the Merge Lines dialog so you can compare your version against the file version line by line</li>
+      <li><strong>⚠️ Overwrite anyway</strong> — discards the other user's changes (use only if you are certain your version is correct)</li>
+      <li><strong>Cancel</strong> — closes the modal without saving; coordinate with the other user first</li>
+    </ul>
+
+    <h3>🔄 Version Check When Opening a Line</h3>
+    <p>When you click a line header to expand it and that line has a linked file, the app silently checks whether the file has been updated since you last loaded it. If it has:</p>
+    <ul>
+      <li><strong>🔄 Reload from file</strong> — fetches the latest version and replaces this line's stations in your workspace</li>
+      <li><strong>Continue with my version</strong> — opens the line as-is; you are working from an older version</li>
+      <li><strong>Cancel</strong> — leaves the line collapsed</li>
+    </ul>
+
+    <h3>📥 Add Line from File (Merge)</h3>
+    <p>When another user has saved a line you also have, use <strong>📥 Add Line from File</strong> to bring in their version and compare:</p>
+    <table>
+      <tr><th>Option</th><th>What it does</th></tr>
+      <tr><td>Keep your version</td><td>Discards the file version — keeps what you have</td></tr>
+      <tr><td>Use file version</td><td>Replaces your version with the one from the file</td></tr>
+      <tr><td>Keep both</td><td>Adds the file version as a new line named "Line (imported)" — nothing is lost</td></tr>
+    </table>
+    <p>The modal shows timestamps for both versions with the newer one highlighted in green, making it clear which is the latest.</p>
+
+    <h3>Recommended Team Workflow</h3>
+    <ol>
+      <li>Store the project file on a shared Google Drive / OneDrive / network folder</li>
+      <li>Before starting work, click the line header — if a newer version exists, reload it first</li>
+      <li>Make your changes, save regularly with 💾 Save</li>
+      <li>If a conflict warning appears on save, use <strong>Review file changes</strong> rather than overwriting</li>
+      <li>Communicate with teammates when you are actively editing a shared line</li>
+    </ol>
+    <div class="tip"><strong>Per-line files:</strong> The most effective team setup is to give each line its own save file (using the line's 💾 Save button). User A owns <code>Powder_Coat.json</code>, User B owns <code>Final_Assembly.json</code> — no conflicts at all.</div>
+  </div>
+
+  <!-- 10. Tips -->
   <div class="section" id="tips">
-    <h2>9. Tips &amp; Best Practices</h2>
+    <h2>10. Tips &amp; Best Practices</h2>
     <h3>Setup</h3>
     <ul>
-      <li>Set the <strong>Station Identifier</strong> on a line <em>before</em> creating stations — every new station gets auto-numbered immediately (e.g. <code>PWD-WIP-01</code>).</li>
-      <li>Build your <strong>Tool List</strong> and <strong>Drawings</strong> on the station first, before writing tasks — they'll be available as dropdowns at every task and step.</li>
+      <li>Set the <strong>Station Identifier</strong> on a line <em>before</em> creating stations — every new station gets auto-numbered immediately.</li>
+      <li>Build your <strong>Tool List</strong> and <strong>Drawings</strong> on the station before writing tasks — they become available as dropdowns at every task and step.</li>
     </ul>
     <h3>Saving</h3>
     <ul>
-      <li><strong>Use Open File Mode as your primary workflow.</strong> Store the <code>.json</code> in Google Drive or a network folder, open it at the start of each session, and hit 💾 Save regularly — just like any other app. The <code>.csv</code> backup writes automatically every time.</li>
-      <li><strong>On your first save</strong>, two dialogs open in sequence — one for the JSON and one for the CSV. Navigate both to the same folder so they stay together.</li>
-      <li>Use <strong>⬇️ Export Save</strong> to create dated snapshots before major restructuring or before creating a new revision.</li>
-      <li>Never rely on browser auto-save as your only copy — it disappears with a cache clear.</li>
-      <li>Each save scope (nav vs line) remembers its own file independently. You can have the full project and a single line each linked to different files simultaneously.</li>
+      <li><strong>Use Open File Mode as your primary workflow.</strong> Open your <code>.json</code> from a shared folder at the start of each session and hit 💾 Save regularly. The CSV writes automatically every time.</li>
+      <li>On first save, two dialogs open — JSON then CSV. Put both in the same folder.</li>
+      <li>Use <strong>⬇️ Export Save</strong> for dated snapshots before major restructuring or before creating a new formal revision.</li>
+      <li>For teams: give each line its own file to eliminate conflicts entirely.</li>
+      <li>Never rely on browser auto-save as your only copy.</li>
     </ul>
     <h3>Revisions</h3>
     <ul>
-      <li>Use <strong>Revision A</strong> for initial builds. Only create new revisions (B, C…) when formally updating — the Windchill reminder in the dialog ensures uploads aren't missed.</li>
-      <li>The revision letter is editable in the dialog — you can skip from A to C, or go to AA if needed.</li>
+      <li>Use <strong>Revision A</strong> for initial builds. Only create new revisions when formally updating — the Windchill reminder ensures uploads aren't missed.</li>
+      <li>The revision letter is editable — you can skip to C or use AA if needed.</li>
     </ul>
     <h3>Rebalancing</h3>
     <ul>
-      <li>Use <strong>↪ Move Task</strong> or <strong>↪ Move Step</strong> to rebalance rather than rebuilding — content, images, cycle times, and tool/drawing assignments all move with the item.</li>
-      <li>Use the <strong>📊 Line Balance</strong> tab's Station scope to drill into a single station and see which tasks are the bottleneck within it.</li>
+      <li>Use <strong>↪ Move Task</strong> or <strong>↪ Move Step</strong> rather than rebuilding — all content, images, and cycle times move with the item.</li>
+      <li>Use the Line Balance <strong>Station scope</strong> to drill into a single station and find which tasks are the bottleneck.</li>
     </ul>
-    <h3>Formatting &amp; Content</h3>
+    <h3>Content</h3>
     <ul>
-      <li>The <strong>Bold/Italic toolbar</strong> on step descriptions works by selecting text first, then clicking B or I. Renders correctly in preview and PDF.</li>
-      <li>The <strong>Import Wizard</strong> is the best way to reuse content across lines or copy a station structure from one project file into another.</li>
-      <li>Insert a step <em>between</em> existing steps using the <strong>+</strong> button that appears in the gap between steps — no need to add at the bottom and drag up.</li>
+      <li><strong>Cycle time:</strong> enter seconds (e.g. <code>90</code>) or MM:SS (e.g. <code>1:30</code>) — both formats work in the same field.</li>
+      <li><strong>Bold/Italic:</strong> select text in the description, then click B or I in the toolbar.</li>
+      <li><strong>Insert between steps:</strong> use the + button that appears in the gap between existing steps.</li>
+      <li><strong>Import Wizard:</strong> the best way to reuse stations across lines or projects.</li>
     </ul>
   </div>
 
