@@ -1133,10 +1133,6 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                         <span style={{background:TEAL,color:"white",borderRadius:3,padding:"1px 7px",fontSize:11,fontWeight:700}}>
                           {String(i+1).padStart(2,"0")}
                         </span>
-                        <button onClick={()=>updLine({...line,stationIds:line.stationIds.filter(id=>id!==s.id)})}
-                          style={{marginLeft:"auto",fontSize:11,padding:"1px 7px",background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:3,cursor:"pointer",color:"#c62828"}}>
-                          Remove from line
-                        </button>
                       </div>
                       <StationEditor
                         station={s}
@@ -1308,8 +1304,16 @@ function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allSta
           selected={step.icons||[]}
           onChange={icons=>u("icons",icons)}
         />
-        <input value={step.cycleTime} onChange={e=>u("cycleTime",e.target.value)} placeholder="Time (min)" type="number" min="0" step="0.01"
-          style={{width:90,padding:"3px 5px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}/>
+        <div style={{display:"flex",gap:0,alignItems:"center"}}>
+          <input value={step.cycleTime} onChange={e=>u("cycleTime",e.target.value)}
+            placeholder="Time" type="number" min="0" step={step.timeUnit==="sec"?"1":"0.01"}
+            style={{width:70,padding:"3px 5px",border:"1px solid #ccc",borderRadius:"4px 0 0 4px",fontSize:12}}/>
+          <select value={step.timeUnit||"min"} onChange={e=>u("timeUnit",e.target.value)}
+            style={{padding:"3px 4px",border:"1px solid #ccc",borderLeft:"none",borderRadius:"0 4px 4px 0",fontSize:11,background:"#f5f5f5",cursor:"pointer",height:28}}>
+            <option value="min">min</option>
+            <option value="sec">sec</option>
+          </select>
+        </div>
         <div style={{display:"flex",gap:3,marginLeft:"auto"}}>
           {moveTargets.length>0 && (
             <div style={{position:"relative"}}>
