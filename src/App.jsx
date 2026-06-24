@@ -127,7 +127,11 @@ const lsLoad = () => {
     const r=localStorage.getItem(SAVE_KEY);
     if(!r) return null;
     const d=JSON.parse(r);
-    return { stations:(d.stations||[]).map(migrateStation), lines:d.lines||[] };
+    if(!d || typeof d !== 'object') return null;
+    return {
+      stations: Array.isArray(d.stations) ? d.stations.map(migrateStation) : [],
+      lines:    Array.isArray(d.lines)    ? d.lines                         : []
+    };
   } catch{ return null; }
 };
 const saveFile = async (stations, lines=[], station=null, lineName=null, explicitName=null) => {
@@ -3220,9 +3224,9 @@ function SaveInfoModal({ onExport, onClose }) {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const saved = lsLoad();
-  const [stations, setStations] = useState(()=>{ const d=lsLoad(); return d?d.stations:[]; });
-  const [lines,    setLines]    = useState(()=>{ const d=lsLoad(); return d?d.lines:[]; });
+  const _savedData = lsLoad(); // call once, share between both state initializers
+  const [stations, setStations] = useState(()=> _savedData ? _savedData.stations : []);
+  const [lines,    setLines]    = useState(()=> _savedData ? _savedData.lines    : []);
   const [active,   setActive]   = useState(null);
   const [tab,      setTab]      = useState("lines");
   const [preview,  setPreview]  = useState(null);
