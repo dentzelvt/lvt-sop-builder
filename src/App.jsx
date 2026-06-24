@@ -23,8 +23,19 @@ const genSopId  = (no, ver, rev) => {
   return `${base}${ver?`-V${ver}`:""}${rev?`.${rev.toUpperCase()}`:""}`;
 };
 const genTaskId = (sopId, n) => `${sopId}-${String(n).padStart(2,"0")}`;
-const fmtTime   = (m) => { const n=parseFloat(m)||0; return n>0?`${n.toFixed(2)} min`:"—"; };
-const sumSteps  = (steps) => steps.reduce((s,st) => s+(parseFloat(st.cycleTime)||0), 0);
+const fmtTime = (m) => {
+  const n = parseFloat(m)||0;
+  if(!n) return "—";
+  const totalSec = Math.round(n * 60);
+  const mm = Math.floor(totalSec / 60);
+  const ss = totalSec % 60;
+  return `${String(mm).padStart(2,"0")}:${String(ss).padStart(2,"0")} min`;
+};
+const toMinutes = (st) => {
+  const v = parseFloat(st.cycleTime)||0;
+  return st.timeUnit==="sec" ? v/60 : v;
+};
+const sumSteps = (steps) => steps.reduce((s,st) => s+toMinutes(st), 0);
 const sumTasks  = (tasks) => tasks.reduce((s,t)  => s+sumSteps(t.steps), 0);
 const reindex   = (tasks, sopId) =>
   tasks.map((t,i) => ({ ...t, taskNo:i+1, taskId:genTaskId(sopId,i+1) }));
@@ -67,7 +78,7 @@ const mkTask = (sopId, taskNo) => ({
 });
 const mkStep = () => ({
   id:Date.now()+Math.random(), useStepNumber:true, stepNumber:"",
-  description:"", keyPoints:"", icons:[], cycleTime:"", image:null, selectedTools:[], selectedDrawings:[],
+  description:"", keyPoints:"", icons:[], cycleTime:"", timeUnit:"min", image:null, selectedTools:[], selectedDrawings:[],
 });
 const mkLine = () => ({
   id: Date.now()+Math.random(),
@@ -276,7 +287,7 @@ const buildCSV = (stations) => {
   stations.forEach(s=>s.tasks.forEach(t=>{
     if(!t.steps.length){ rows.push([s.sopId,s.stationNo,s.stationDesc||"",t.taskNo,t.taskId,t.description,"","","","",""]); return; }
     t.steps.forEach((st,si)=>rows.push([s.sopId,s.stationNo,s.stationDesc||"",t.taskNo,t.taskId,t.description,
-      st.stepNumber||si+1,st.description,st.keyPoints,(st.icons||[st.icon]).filter(i=>i&&i!=="none").map(i=>ICONS[i]?.label||i).join("; "),parseFloat(st.cycleTime)||0]));
+      st.stepNumber||si+1,st.description,st.keyPoints,(st.icons||[st.icon]).filter(i=>i&&i!=="none").map(i=>ICONS[i]?.label||i).join("; "),toMinutes(st).toFixed(4)]));
   }));
   return rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\r\n");
 };
@@ -449,7 +460,7 @@ const buildPrintHTML = (station, screen=false) => {
       return `<tr class="step-row">
         <td class="step-num">${num}</td>
         <td class="step-desc">${ico}${rich(step.description)}${kp}${stepRefs}${img}</td>
-        <td class="step-time">${step.cycleTime?parseFloat(step.cycleTime).toFixed(2):""}</td>
+        <td class="step-time">${step.cycleTime?(step.timeUnit==="sec"?(parseFloat(step.cycleTime)/60).toFixed(2):parseFloat(step.cycleTime).toFixed(2)):""}</td>
       </tr>`;
     }).join("");
     return `
@@ -530,7 +541,7 @@ const buildPrintHTML = (station, screen=false) => {
   `;
 
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"/><title>SOP ${safe(station.sopId)}</title>
+<html><head><meta charset="utf-8"/><title>${pdfName(station)}</title>
 <style>
   * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important;
       box-sizing:border-box; font-family:Arial,sans-serif; }
@@ -562,6 +573,10 @@ const buildPrintHTML = (station, screen=false) => {
 </body></html>`;
 };
 
+
+// Build PDF filename from sopId + stationDesc
+const pdfName = (station) =>
+  [station.sopId, station.stationDesc].filter(Boolean).join("_").replace(/[^a-zA-Z0-9_\-]/g,"_") || "SOP";
 
 const exportPDF = (station) => {
   const win=window.open("","_blank");
@@ -1860,19 +1875,21 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
         <div style={{padding:16}}>
           {/* Station fields */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:8}}>
-            {/* Station No — read-only if managed by line identifier */}
+            {/* Station No — editable, defaults from line identifier */}
             <div>
               <label style={{fontSize:11,color:"#555",display:"block",marginBottom:2}}>
-                Station No.{stationIdentifier?"":" *"}
-                {stationIdentifier && <span style={{fontSize:10,color:TEAL,marginLeft:4}}>auto</span>}
+                Station No. *
+                {stationIdentifier && <span style={{fontSize:10,color:"#888",marginLeft:4}}>default: {station.stationNo||stationIdentifier+"-??"}</span>}
               </label>
-              <input value={station.stationNo||""} readOnly={!!stationIdentifier}
-                onChange={e=>!stationIdentifier&&u("stationNo",e.target.value)}
-                placeholder={stationIdentifier?"(auto-assigned)":"REF-WIP-02"}
-                style={{width:"100%",padding:"5px 7px",border:`1px solid ${stationIdentifier?"#b2dfdb":"#ccc"}`,borderRadius:4,
-                        fontSize:12,background:stationIdentifier?"#e0f2f1":"white",
-                        cursor:stationIdentifier?"not-allowed":"text",
-                        fontWeight:stationIdentifier?700:400,color:stationIdentifier?TEAL_DARK:"inherit"}}/>
+              <input value={station.stationNo||""}
+                onChange={e=>{
+                  const val=e.target.value;
+                  const newSopId=genSopId(val,station.asmVersion,station.sopRev);
+                  const tasks=station.tasks.map(t=>({...t,taskId:genTaskId(newSopId,t.taskNo)}));
+                  onUpdate({...station,stationNo:val,sopId:newSopId,tasks});
+                }}
+                placeholder={stationIdentifier||(station.stationNo||"REF-WIP-02")}
+                style={{width:"100%",padding:"5px 7px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}/>
             </div>
             {[{l:"Station Description",f:"stationDesc",ph:"BATTERY"},
               {l:"ASM Version",f:"asmVersion",ph:"2"},{l:"Revised By",f:"revisedBy",ph:"Name"}
