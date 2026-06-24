@@ -979,6 +979,8 @@ function AddExistingStation({ available, assignedIds, onAdd }) {
 function LinesManager({ lines, stations, onLinesChange, onStationsChange, updStation, preview, setPreview, stationHandles, setStationHandle, lineHandles, setLineHandle, flash, confirmDelete, openLineFile }) {
   const [activeLineId,    setActiveLineId]    = useState(null);
   const [activeStationId, setActiveStationId] = useState(null);
+  const [lineReloadPrompt, setLineReloadPrompt] = useState(null); // {line, fileUpdatedAt, loadedAt}
+  const lineOpenedAt = useRef({}); // lineId → ISO timestamp when last opened/reloaded
 
   const addLine = () => {
     const l = mkLine();
@@ -1026,6 +1028,81 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
         </div>
       </div>
 
+      {/* Line reload / version check prompt */}
+      {lineReloadPrompt && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"white",borderRadius:12,padding:28,maxWidth:460,width:"95%",boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}}>
+            <div style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:16}}>
+              <span style={{fontSize:32}}>🔄</span>
+              <div>
+                <div style={{fontWeight:700,fontSize:16,color:TEAL_DARK}}>Newer Version Available</div>
+                <div style={{fontSize:12,color:"#888",marginTop:2}}>🏗️ {lineReloadPrompt.line.name||"This line"}</div>
+              </div>
+            </div>
+            <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:8,padding:"12px 14px",marginBottom:14,fontSize:13,color:"#555",lineHeight:1.7}}>
+              This line's file was <strong>updated after you last loaded it</strong>. Another user may have made changes.
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:20,fontSize:12}}>
+              <div style={{background:"#f5f5f5",borderRadius:6,padding:"10px 12px"}}>
+                <div style={{color:"#888",marginBottom:3}}>Your version loaded at</div>
+                <div style={{fontWeight:700,color:"#555"}}>
+                  {lineReloadPrompt.loadedAt ? new Date(lineReloadPrompt.loadedAt).toLocaleString() : "Unknown"}
+                </div>
+              </div>
+              <div style={{background:"#e8f5e9",borderRadius:6,padding:"10px 12px",border:"1px solid #a5d6a7"}}>
+                <div style={{color:TEAL_DARK,marginBottom:3}}>File last saved at</div>
+                <div style={{fontWeight:700,color:TEAL_DARK}}>
+                  {new Date(lineReloadPrompt.fileUpdatedAt).toLocaleString()}
+                </div>
+              </div>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <button onClick={async()=>{
+                // Reload from file
+                try {
+                  const file = await lineReloadPrompt.handle.getFile();
+                  const text = await file.text();
+                  const data = JSON.parse(text);
+                  // Merge incoming line into workspace (replace this line's stations)
+                  const incomingLine = (data.lines||[]).find(l=>l.name?.trim().toLowerCase()===lineReloadPrompt.line.name?.trim().toLowerCase());
+                  if(incomingLine) {
+                    const incomingStations = (data.stations||[]).filter(s=>incomingLine.stationIds.includes(s.id));
+                    // Remove old stations for this line, add new ones
+                    onStationsChange(prev => {
+                      const without = prev.filter(s=>!lineReloadPrompt.line.stationIds.includes(s.id));
+                      return [...without, ...incomingStations.map(migrateStation)];
+                    });
+                    onLinesChange(prev => prev.map(l => l.id===lineReloadPrompt.line.id ? {...incomingLine, id:l.id} : l));
+                    flash(`✓ Reloaded: ${lineReloadPrompt.line.name}`);
+                  } else {
+                    flash("Could not find matching line in file.");
+                  }
+                } catch(e){ flash("Could not reload file."); }
+                lineOpenedAt.current[lineReloadPrompt.line.id] = new Date().toISOString();
+                setActiveLineId(lineReloadPrompt.line.id);
+                setLineReloadPrompt(null);
+              }}
+                style={{background:TEAL,color:"white",border:"none",borderRadius:7,padding:"11px 0",cursor:"pointer",fontSize:13,fontWeight:700}}>
+                🔄 Reload from file (get latest)
+              </button>
+              <button onClick={()=>{
+                // Open with current workspace version
+                lineOpenedAt.current[lineReloadPrompt.line.id] = new Date().toISOString();
+                setActiveLineId(lineReloadPrompt.line.id);
+                setLineReloadPrompt(null);
+              }}
+                style={{background:"#fff8e1",color:"#e65100",border:"2px solid #ffb74d",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:600}}>
+                Continue with my version
+              </button>
+              <button onClick={()=>setLineReloadPrompt(null)}
+                style={{background:"#f5f5f5",color:"#555",border:"1px solid #ddd",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13}}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {lines.length===0 && (
         <div style={{textAlign:"center",padding:60,color:"#bbb",background:"white",borderRadius:12,border:"2px dashed #e0e0e0"}}>
           <div style={{fontSize:48}}>🏗️</div>
@@ -1044,7 +1121,24 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
               overflow:"visible",background:"white",boxShadow:isLineOpen?"0 2px 12px rgba(0,137,123,0.12)":"0 1px 3px rgba(0,0,0,0.06)"}}>
 
             {/* ── Line header bar ── */}
-            <div onClick={()=>{ setActiveLineId(isLineOpen?null:line.id); if(isLineOpen) setActiveStationId(null); }}
+            <div onClick={async()=>{
+              if(isLineOpen){ setActiveLineId(null); setActiveStationId(null); return; }
+              // Opening the line — check if the linked file has been updated since last load
+              const lh = lineHandles[line.id];
+              if(lh?.handle) {
+                try {
+                  const diskState = await readFileSavedAt(lh.handle);
+                  const openedAt  = lineOpenedAt.current[line.id];
+                  if(diskState?.savedAt && openedAt && diskState.savedAt > openedAt) {
+                    // File is newer than when we last loaded this line
+                    setLineReloadPrompt({ line, fileUpdatedAt: diskState.savedAt, loadedAt: openedAt, handle: lh.handle });
+                    return; // Don't open yet — let user decide
+                  }
+                } catch(e){ /* can't read file — open normally */ }
+              }
+              setActiveLineId(line.id);
+              lineOpenedAt.current[line.id] = new Date().toISOString();
+            }}
               style={{background:isLineOpen?TEAL:"#f5f5f5",color:isLineOpen?"white":"#333",padding:"10px 14px",
                       cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",
                       userSelect:"none",borderRadius:isLineOpen?"8px 8px 0 0":"8px"}}>
