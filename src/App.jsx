@@ -1057,16 +1057,35 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                   style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isLineOpen?"white":"#333"}}>
                   + Station
                 </button>
-                <button onClick={async(e)=>{e.stopPropagation();
-                  const lh = lineHandles[line.id];
-                  const name=(line.name||"Line").replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_")+`_${new Date().toISOString().slice(0,10)}`;
-                  await smartSave(lineStations,[line],name,lh?.handle||null,(h,n)=>setLineHandle(line.id,h,n),flash);
-                }} style={{background:lineHandles[line.id]?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.2)",
-                           border:lineHandles[line.id]?"2px solid #a5d6a7":"1px solid rgba(255,255,255,0.5)",
-                           borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,
-                           color:isLineOpen?"white":"#333",fontWeight:lineHandles[line.id]?700:400}}>
-                  💾 Save
-                </button>
+                {/* Line save button + linked file indicator */}
+                <div style={{display:"flex",alignItems:"center",gap:0}}>
+                  <button onClick={async(e)=>{e.stopPropagation();
+                    const lh = lineHandles[line.id];
+                    const name=(line.name||"Line").replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_")+`_${new Date().toISOString().slice(0,10)}`;
+                    await smartSave(lineStations,[line],name,lh?.handle||null,(h,n)=>setLineHandle(line.id,h,n),flash);
+                  }} style={{background:lineHandles[line.id]?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.2)",
+                             border:lineHandles[line.id]?"2px solid #a5d6a7":"1px solid rgba(255,255,255,0.5)",
+                             borderRadius:lineHandles[line.id]?"4px 0 0 4px":"4px",
+                             padding:"3px 10px",cursor:"pointer",fontSize:12,
+                             color:isLineOpen?"white":"#333",fontWeight:lineHandles[line.id]?700:400}}>
+                    💾 Save
+                  </button>
+                  {lineHandles[line.id] && (
+                    <span style={{display:"flex",alignItems:"center",gap:2,
+                                  background:"rgba(255,255,255,0.15)",border:"2px solid #a5d6a7",borderLeft:"none",
+                                  borderRadius:"0 4px 4px 0",padding:"2px 6px",fontSize:10,
+                                  color:isLineOpen?"#a5d6a7":"#555",maxWidth:120,overflow:"hidden"}}>
+                      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:90}}
+                        title={lineHandles[line.id].name}>
+                        {lineHandles[line.id].name}
+                      </span>
+                      <button onClick={e=>{e.stopPropagation();setLineHandle(line.id,null,null);}}
+                        title="Disconnect this file"
+                        style={{background:"none",border:"none",cursor:"pointer",color:"rgba(255,255,255,0.7)",
+                                fontSize:10,padding:"0 1px",lineHeight:1,flexShrink:0}}>✕</button>
+                    </span>
+                  )}
+                </div>
                 <button onClick={()=>lineStations.forEach((s,i)=>setTimeout(()=>exportPDF({...s,lineName:line.name}),i*500))}
                   style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isLineOpen?"white":"#333"}}>
                   📄 All PDFs
@@ -3299,11 +3318,31 @@ export default function App() {
         <div style={{flex:1}}/>
         <div style={{display:"flex",alignItems:"center",gap:5,padding:"8px 0"}}>
           {activeFileName&&!saveMsg&&(
-            <span style={{fontSize:11,color:"#a5d6a7",marginRight:4,display:"flex",alignItems:"center",gap:4}}>
-              <span style={{opacity:0.7}}>📄</span>
-              <span style={{maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={activeFileName}>{activeFileName}</span>
-              <button onClick={()=>{setActiveFileHandle(null);setActiveFileName("");}} title="Close file (switch to manual save)"
-                style={{background:"none",border:"none",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:12,padding:"0 2px",lineHeight:1}}>✕</button>
+            <span style={{fontSize:11,color:"#a5d6a7",marginRight:4,display:"flex",alignItems:"center",gap:6,
+                          background:"rgba(255,255,255,0.1)",borderRadius:5,padding:"3px 8px"}}>
+              {/* JSON file */}
+              <span style={{display:"flex",alignItems:"center",gap:3}}>
+                <span style={{opacity:0.7}}>📄</span>
+                <span style={{maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
+                  title={activeFileName}>{activeFileName}</span>
+                <button onClick={()=>{setActiveFileHandle(null);setActiveFileName("");openedAtRef.current=null;}}
+                  title="Disconnect JSON file"
+                  style={{background:"none",border:"none",color:"rgba(255,255,255,0.6)",cursor:"pointer",fontSize:11,padding:"0 1px",lineHeight:1}}>✕</button>
+              </span>
+              {/* CSV file — shown if linked */}
+              {activeFileHandle?._csvHandle && (
+                <>
+                  <span style={{opacity:0.4}}>+</span>
+                  <span style={{display:"flex",alignItems:"center",gap:3}}>
+                    <span style={{opacity:0.7}}>📊</span>
+                    <span style={{maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
+                      title={activeFileHandle._csvHandle.name}>{activeFileHandle._csvHandle.name}</span>
+                    <button onClick={()=>{ if(activeFileHandle) activeFileHandle._csvHandle=null; setActiveFileName(n=>n); }}
+                      title="Disconnect CSV file"
+                      style={{background:"none",border:"none",color:"rgba(255,255,255,0.6)",cursor:"pointer",fontSize:11,padding:"0 1px",lineHeight:1}}>✕</button>
+                  </span>
+                </>
+              )}
             </span>
           )}
           {saveMsg&&<span style={{fontSize:11,color:"#a5d6a7",marginRight:4}}>{saveMsg}</span>}
