@@ -23,18 +23,28 @@ const genSopId  = (no, ver, rev) => {
   return `${base}${ver?`-V${ver}`:""}${rev?`.${rev.toUpperCase()}`:""}`;
 };
 const genTaskId = (sopId, n) => `${sopId}-${String(n).padStart(2,"0")}`;
-const fmtTime = (m) => {
-  const n = parseFloat(m)||0;
+const fmtTime = (totalMin) => {
+  const n = parseFloat(totalMin)||0;
   if(!n) return "—";
   const totalSec = Math.round(n * 60);
   const mm = Math.floor(totalSec / 60);
   const ss = totalSec % 60;
-  return `${String(mm).padStart(2,"0")}:${String(ss).padStart(2,"0")} min`;
+  return mm > 0
+    ? `${mm}:${String(ss).padStart(2,"0")} min`
+    : `0:${String(ss).padStart(2,"0")} min`;
 };
-const toMinutes = (st) => {
-  const v = parseFloat(st.cycleTime)||0;
-  return st.timeUnit==="sec" ? v/60 : v;
+// Parse cycle time entry: "1:30" → 1.5 min, "90" → 1.5 min (assumes seconds)
+const parseTime = (val) => {
+  if(!val && val !== 0) return 0;
+  const s = String(val).trim();
+  if(s.includes(":")) {
+    const [mm, ss] = s.split(":").map(p => parseFloat(p)||0);
+    return mm + ss/60;
+  }
+  // plain number = seconds
+  return (parseFloat(s)||0) / 60;
 };
+const toMinutes = (st) => parseTime(st.cycleTime);
 const sumSteps = (steps) => steps.reduce((s,st) => s+toMinutes(st), 0);
 const sumTasks  = (tasks) => tasks.reduce((s,t)  => s+sumSteps(t.steps), 0);
 const reindex   = (tasks, sopId) =>
@@ -78,7 +88,7 @@ const mkTask = (sopId, taskNo) => ({
 });
 const mkStep = () => ({
   id:Date.now()+Math.random(), useStepNumber:true, stepNumber:"",
-  description:"", keyPoints:"", icons:[], cycleTime:"", timeUnit:"min", image:null, selectedTools:[], selectedDrawings:[],
+  description:"", keyPoints:"", icons:[], cycleTime:"", image:null, selectedTools:[], selectedDrawings:[],
 });
 const mkLine = () => ({
   id: Date.now()+Math.random(),
@@ -287,7 +297,7 @@ const buildCSV = (stations) => {
   stations.forEach(s=>s.tasks.forEach(t=>{
     if(!t.steps.length){ rows.push([s.sopId,s.stationNo,s.stationDesc||"",t.taskNo,t.taskId,t.description,"","","","",""]); return; }
     t.steps.forEach((st,si)=>rows.push([s.sopId,s.stationNo,s.stationDesc||"",t.taskNo,t.taskId,t.description,
-      st.stepNumber||si+1,st.description,st.keyPoints,(st.icons||[st.icon]).filter(i=>i&&i!=="none").map(i=>ICONS[i]?.label||i).join("; "),toMinutes(st).toFixed(4)]));
+      st.stepNumber||si+1,st.description,st.keyPoints,(st.icons||[st.icon]).filter(i=>i&&i!=="none").map(i=>ICONS[i]?.label||i).join("; "),toMinutes(st).toFixed(3)]));
   }));
   return rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\r\n");
 };
@@ -460,7 +470,7 @@ const buildPrintHTML = (station, screen=false) => {
       return `<tr class="step-row">
         <td class="step-num">${num}</td>
         <td class="step-desc">${ico}${rich(step.description)}${kp}${stepRefs}${img}</td>
-        <td class="step-time">${step.cycleTime?(step.timeUnit==="sec"?(parseFloat(step.cycleTime)/60).toFixed(2):parseFloat(step.cycleTime).toFixed(2)):""}</td>
+        <td class="step-time">${step.cycleTime?parseTime(step.cycleTime).toFixed(2):""}</td>
       </tr>`;
     }).join("");
     return `
@@ -1304,16 +1314,10 @@ function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allSta
           selected={step.icons||[]}
           onChange={icons=>u("icons",icons)}
         />
-        <div style={{display:"flex",gap:0,alignItems:"center"}}>
-          <input value={step.cycleTime} onChange={e=>u("cycleTime",e.target.value)}
-            placeholder="Time" type="number" min="0" step={step.timeUnit==="sec"?"1":"0.01"}
-            style={{width:70,padding:"3px 5px",border:"1px solid #ccc",borderRadius:"4px 0 0 4px",fontSize:12}}/>
-          <select value={step.timeUnit||"min"} onChange={e=>u("timeUnit",e.target.value)}
-            style={{padding:"3px 4px",border:"1px solid #ccc",borderLeft:"none",borderRadius:"0 4px 4px 0",fontSize:11,background:"#f5f5f5",cursor:"pointer",height:28}}>
-            <option value="min">min</option>
-            <option value="sec">sec</option>
-          </select>
-        </div>
+        <input value={step.cycleTime} onChange={e=>u("cycleTime",e.target.value)}
+          placeholder="secs (or MM:SS)" type="text"
+          title="Enter seconds (e.g. 90) or MM:SS (e.g. 1:30)"
+          style={{width:100,padding:"3px 5px",border:"1px solid #ccc",borderRadius:4,fontSize:12}}/>
         <div style={{display:"flex",gap:3,marginLeft:"auto"}}>
           {moveTargets.length>0 && (
             <div style={{position:"relative"}}>
