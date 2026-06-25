@@ -88,7 +88,7 @@ const mkTask = (sopId, taskNo) => ({
 });
 const mkStep = () => ({
   id:Date.now()+Math.random(), useStepNumber:true, stepNumber:"",
-  description:"", keyPoints:"", icons:[], cycleTime:"", image:null, selectedTools:[], selectedDrawings:[],
+  description:"", keyPoints:"", icons:[], cycleTime:"", images:[], selectedTools:[], selectedDrawings:[],
 });
 const mkLine = () => ({
   id: Date.now()+Math.random(),
@@ -120,6 +120,14 @@ const migrateStation = (s) => {
   }
   // Seed toolList if missing
   if (!s.toolList) s = { ...s, toolList: [] };
+  // Migrate step.image (single) → step.images (array)
+  s = { ...s, tasks: s.tasks.map(t => ({
+    ...t,
+    steps: t.steps.map(st => {
+      if (st.images) return st; // already migrated
+      return { ...st, images: st.image ? [st.image] : [], image: undefined };
+    })
+  }))};
   return s;
 };
 const lsLoad = () => {
@@ -483,7 +491,7 @@ const buildPrintHTML = (station, screen=false) => {
     const stepRows = task.steps.map((step,si) => {
       const ico = (step.icons&&step.icons.length?step.icons:step.icon&&step.icon!=="none"?[step.icon]:[]).map(k=>ICONS[k]?.emoji||"").filter(Boolean).join(" ")+(((step.icons&&step.icons.length)||(step.icon&&step.icon!=="none"))?" ":"");
       const num = step.useStepNumber ? `<strong>${step.stepNumber||si+1}</strong>` : "";
-      const img = step.image ? `<div class="step-img-wrap"><img src="${step.image}" class="sthumb"/></div>` : "";
+      const imgs = (step.images||[]).map(src=>`<div class="step-img-wrap"><img src="${src}" class="sthumb"/></div>`).join(""); const img = imgs;
       const kp  = step.keyPoints ? `<br/><em class="kp">${rich(step.keyPoints)}</em>` : "";
       const stepRefs = refTags(step.selectedTools, step.selectedDrawings);
       return `<tr class="step-row">
@@ -1552,14 +1560,17 @@ function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allSta
           )}
         </div>
       )}
-      <div style={{marginTop:5,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-        <ImgUpload label="📎 Step Image" onImage={src=>u("image",src)}/>
-        {step.image && (
-          <div style={{position:"relative"}}>
-            <img src={step.image} alt="" style={{maxHeight:70,maxWidth:120,border:"1px solid #ccc",borderRadius:4}}/>
-            <button onClick={()=>u("image",null)} style={{position:"absolute",top:-6,right:-6,background:"#e53935",color:"white",border:"none",borderRadius:"50%",width:18,height:18,cursor:"pointer",fontSize:10,lineHeight:"18px",textAlign:"center",padding:0}}>✕</button>
+      <div style={{marginTop:5,display:"flex",gap:8,alignItems:"flex-start",flexWrap:"wrap"}}>
+        <ImgUpload label="📎 Add Image" onImage={src=>u("images",[...(step.images||[]),src])}/>
+        {(step.images||[]).map((src,i)=>(
+          <div key={i} style={{position:"relative",flexShrink:0}}>
+            <img src={src} alt="" style={{maxHeight:70,maxWidth:120,border:"1px solid #ccc",borderRadius:4,display:"block"}}/>
+            <button onClick={()=>u("images",(step.images||[]).filter((_,j)=>j!==i))}
+              style={{position:"absolute",top:-6,right:-6,background:"#e53935",color:"white",border:"none",
+                      borderRadius:"50%",width:18,height:18,cursor:"pointer",fontSize:10,
+                      lineHeight:"18px",textAlign:"center",padding:0}}>✕</button>
           </div>
-        )}
+        ))}
       </div>
     </div>
   );
