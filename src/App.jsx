@@ -972,25 +972,40 @@ function AddExistingStation({ available, onAdd }) {
 }
 
 function LinesManager({ lines, stations, onLinesChange, onStationsChange, updStation, preview, setPreview, stationHandles, setStationHandle, lineHandles, setLineHandle, flash, confirmDelete, openLineFile }) {
-  const [activeLineId,    setActiveLineId]    = useState(null);
-  const [activeStationId, setActiveStationId] = useState(null);
+  // Use Sets so multiple lines/stations can be open independently
+  // Default: all collapsed
+  const [openLineIds,    setOpenLineIds]    = useState(new Set());
+  const [openStationIds, setOpenStationIds] = useState(new Set());
   const [lineReloadPrompt, setLineReloadPrompt] = useState(null);
   const lineOpenedAt = useRef({});
+
+  // Helpers
+  const isLineOpen    = (id) => openLineIds.has(id);
+  const isStationOpen = (id) => openStationIds.has(id);
+  const toggleLine    = (id) => setOpenLineIds(prev => { const s=new Set(prev); s.has(id)?s.delete(id):s.add(id); return s; });
+  const toggleStation = (id) => setOpenStationIds(prev => { const s=new Set(prev); s.has(id)?s.delete(id):s.add(id); return s; });
+  const openLine      = (id) => setOpenLineIds(prev => new Set([...prev, id]));
+  const openStation   = (id) => setOpenStationIds(prev => new Set([...prev, id]));
+  const collapseAllInLine = (line) => {
+    setOpenStationIds(prev => { const s=new Set(prev); line.stationIds.forEach(id=>s.delete(id)); return s; });
+  };
+  const collapseAllLines = () => { setOpenLineIds(new Set()); setOpenStationIds(new Set()); };
 
   // Listen for sidebar navigation events
   useEffect(() => {
     const handler = (e) => {
       const { type, lineId, stationId, taskId } = e.detail || {};
-      if(lineId)    setActiveLineId(lineId);
-      if(stationId) setActiveStationId(stationId);
-      // Scroll target into view after state update
+      // Open the relevant items then scroll — don't collapse others
+      if(lineId)    openLine(lineId);
+      if(stationId) openStation(stationId);
+      // Scroll after state settles
       setTimeout(() => {
-        const id = taskId ? `task-${taskId}` : stationId ? `station-${stationId}` : lineId ? `line-${lineId}` : null;
-        if(id) {
-          const el = document.getElementById(id);
+        const targetId = taskId ? `task-${taskId}` : stationId ? `station-${stationId}` : lineId ? `line-${lineId}` : null;
+        if(targetId) {
+          const el = document.getElementById(targetId);
           if(el) el.scrollIntoView({behavior:"smooth", block:"start"});
         }
-      }, 120);
+      }, 150);
     };
     window.addEventListener("sop-nav", handler);
     return () => window.removeEventListener("sop-nav", handler);
@@ -1004,7 +1019,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
   const updLine = (updated) => onLinesChange(lines.map(l => l.id===updated.id ? updated : l));
   const delLine = (id) => {
     onLinesChange(lines.filter(l=>l.id!==id));
-    if(activeLineId===id){ setActiveLineId(null); setActiveStationId(null); }
+    setOpenLineIds(prev=>{ const s=new Set(prev); s.delete(id); return s; }); setOpenStationIds(new Set());
   };
   const addStationToLine = (line) => {
     let s = mkStation();
@@ -1028,11 +1043,17 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
           <h2 style={{margin:0,color:TEAL_DARK}}>Production Lines</h2>
           <span style={{fontSize:12,color:"#888"}}>{lines.length} line(s) · {stations.length} total station(s)</span>
         </div>
-        <div style={{display:"flex",gap:8}}>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
           {openLineFile && (
             <button onClick={openLineFile}
               style={{background:"rgba(0,105,92,0.08)",color:TEAL_DARK,border:`1px solid ${TEAL}`,borderRadius:8,padding:"10px 16px",cursor:"pointer",fontSize:14,fontWeight:600}}>
               📥 Add Line from File
+            </button>
+          )}
+          {openLineIds.size>0 && (
+            <button onClick={collapseAllLines}
+              style={{background:"#f5f5f5",color:"#555",border:"1px solid #ddd",borderRadius:8,padding:"10px 14px",cursor:"pointer",fontSize:13}}>
+              ⊟ Collapse All
             </button>
           )}
           <button onClick={addLine}
@@ -1093,7 +1114,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                   }
                 } catch(e){ flash("Could not reload file."); }
                 lineOpenedAt.current[lineReloadPrompt.line.id] = new Date().toISOString();
-                setActiveLineId(lineReloadPrompt.line.id);
+                openLine(lineReloadPrompt.line.id);
                 setLineReloadPrompt(null);
               }}
                 style={{background:TEAL,color:"white",border:"none",borderRadius:7,padding:"11px 0",cursor:"pointer",fontSize:13,fontWeight:700}}>
@@ -1102,7 +1123,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
               <button onClick={()=>{
                 // Open with current workspace version
                 lineOpenedAt.current[lineReloadPrompt.line.id] = new Date().toISOString();
-                setActiveLineId(lineReloadPrompt.line.id);
+                openLine(lineReloadPrompt.line.id);
                 setLineReloadPrompt(null);
               }}
                 style={{background:"#fff8e1",color:"#e65100",border:"2px solid #ffb74d",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:600}}>
@@ -1128,15 +1149,15 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
       {lines.map(line => {
         const lineStations = line.stationIds.map(id=>stations.find(s=>s.id===id)).filter(Boolean);
         const totalTime    = lineStations.reduce((sum,s)=>sum+sumTasks(s.tasks),0);
-        const isLineOpen   = activeLineId===line.id;
+        const lineOpen = isLineOpen(line.id);
 
         return (
-          <div key={line.id} id={`line-${line.id}`} style={{border:isLineOpen?`2px solid ${TEAL}`:"1px solid #ddd",borderRadius:10,marginBottom:10,
-              overflow:"visible",background:"white",boxShadow:isLineOpen?"0 2px 12px rgba(0,137,123,0.12)":"0 1px 3px rgba(0,0,0,0.06)"}}>
+          <div key={line.id} id={`line-${line.id}`} style={{border:lineOpen?`2px solid ${TEAL}`:"1px solid #ddd",borderRadius:10,marginBottom:10,
+              overflow:"visible",background:"white",boxShadow:lineOpen?"0 2px 12px rgba(0,137,123,0.12)":"0 1px 3px rgba(0,0,0,0.06)"}}>
 
             {/* ── Line header bar ── */}
             <div onClick={async()=>{
-              if(isLineOpen){ setActiveLineId(null); setActiveStationId(null); return; }
+              if(lineOpen){ toggleLine(line.id); return; }
               // Opening the line — check if the linked file has been updated since last load
               const lh = lineHandles[line.id];
               if(lh?.handle) {
@@ -1150,19 +1171,19 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                   }
                 } catch(e){ /* can't read file — open normally */ }
               }
-              setActiveLineId(line.id);
+              openLine(line.id);
               lineOpenedAt.current[line.id] = new Date().toISOString();
             }}
-              style={{background:isLineOpen?TEAL:"#f5f5f5",color:isLineOpen?"white":"#333",padding:"10px 14px",
+              style={{background:lineOpen?TEAL:"#f5f5f5",color:lineOpen?"white":"#333",padding:"10px 14px",
                       cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",
-                      userSelect:"none",borderRadius:isLineOpen?"8px 8px 0 0":"8px"}}>
+                      userSelect:"none",borderRadius:lineOpen?"8px 8px 0 0":"8px"}}>
               <div style={{display:"flex",gap:10,alignItems:"center"}}>
                 <span style={{fontWeight:700,fontSize:15}}>🏗️ {line.name||"New Line"}</span>
                 <span style={{fontSize:12,opacity:0.8}}>{lineStations.length} station(s) · ⏱ {fmtTime(totalTime)}</span>
               </div>
               <div style={{display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
                 <button onClick={()=>addStationToLine(line)}
-                  style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isLineOpen?"white":"#333"}}>
+                  style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:lineOpen?"white":"#333"}}>
                   + Station
                 </button>
                 {/* Line save button + linked file indicator */}
@@ -1177,14 +1198,14 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                              border:lineHandles[line.id]?"2px solid #a5d6a7":"1px solid rgba(255,255,255,0.5)",
                              borderRadius:lineHandles[line.id]?"4px 0 0 4px":"4px",
                              padding:"3px 10px",cursor:"pointer",fontSize:12,
-                             color:isLineOpen?"white":"#333",fontWeight:lineHandles[line.id]?700:400}}>
+                             color:lineOpen?"white":"#333",fontWeight:lineHandles[line.id]?700:400}}>
                     💾 Save
                   </button>
                   {lineHandles[line.id] && (
                     <span style={{display:"flex",alignItems:"center",gap:2,
                                   background:"rgba(255,255,255,0.15)",border:"2px solid #a5d6a7",borderLeft:"none",
                                   borderRadius:"0 4px 4px 0",padding:"2px 6px",fontSize:10,
-                                  color:isLineOpen?"#a5d6a7":"#555",maxWidth:120,overflow:"hidden"}}>
+                                  color:lineOpen?"#a5d6a7":"#555",maxWidth:120,overflow:"hidden"}}>
                       <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:90}}
                         title={lineHandles[line.id].name}>
                         {lineHandles[line.id].name}
@@ -1197,7 +1218,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                   )}
                 </div>
                 <button onClick={()=>lineStations.forEach((s,i)=>setTimeout(()=>exportPDF({...s,lineName:line.name}),i*500))}
-                  style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:isLineOpen?"white":"#333"}}>
+                  style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.5)",borderRadius:4,padding:"3px 10px",cursor:"pointer",fontSize:12,color:lineOpen?"white":"#333"}}>
                   📄 All PDFs
                 </button>
                 <button onClick={()=>confirmDelete("line", line.name||"this line", {lineId:line.id})}
@@ -1205,7 +1226,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
               </div>
             </div>
 
-            {isLineOpen && (
+            {lineOpen && (
               <div style={{padding:16}}>
                 {/* Line name + description */}
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
@@ -1252,10 +1273,18 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                     <span>Stations ({lineStations.length})
                       <span style={{fontSize:11,color:"#aaa",fontWeight:400,marginLeft:8}}>⠿ drag to reorder</span>
                     </span>
-                    <button onClick={()=>addStationToLine(line)}
-                      style={{fontSize:12,padding:"3px 10px",background:TEAL,color:"white",border:"none",borderRadius:5,cursor:"pointer",fontWeight:600}}>
-                      + Add Station
-                    </button>
+                    <div style={{display:"flex",gap:6}}>
+                      {lineStations.some(s=>isStationOpen(s.id)) && (
+                        <button onClick={()=>collapseAllInLine(line)}
+                          style={{fontSize:12,padding:"3px 10px",background:"#f5f5f5",color:"#555",border:"1px solid #ddd",borderRadius:5,cursor:"pointer"}}>
+                          ⊟ Collapse Stations
+                        </button>
+                      )}
+                      <button onClick={()=>addStationToLine(line)}
+                        style={{fontSize:12,padding:"3px 10px",background:TEAL,color:"white",border:"none",borderRadius:5,cursor:"pointer",fontWeight:600}}>
+                        + Add Station
+                      </button>
+                    </div>
                   </div>
 
                   {lineStations.length===0 && (
@@ -1299,8 +1328,8 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                       </div>
                       <StationEditor
                         station={s}
-                        isActive={activeStationId===s.id}
-                        onSelect={()=>setActiveStationId(activeStationId===s.id?null:s.id)}
+                        isActive={isStationOpen(s.id)}
+                        onSelect={()=>toggleStation(s.id)}
                         onUpdate={(updated, extra)=>updStation(updated, extra)}
                         onDelete={()=>confirmDelete("station", s.stationNo||s.sopId||"this station", {stationId:s.id})}
                         onPreview={()=>setPreview({...s,lineName:line.name})}
@@ -1556,7 +1585,7 @@ function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStat
   const [showNums, setShowNums] = useState(
     () => task.steps.length === 0 || task.steps.some(s => s.useStepNumber !== false)
   );
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true); // tasks start collapsed
   const [showMoveTask, setShowMoveTask] = useState(false);
   const u=(f,v)=>onUpdate({...task,[f]:v});
 
@@ -2835,23 +2864,28 @@ function SidebarNav({ lines, stations, open, onNavigate, onDeleteStation, onDele
   const [expanded, setExpanded] = useState({});
   const toggle = (key) => setExpanded(e=>({...e,[key]:!e[key]}));
 
-  useEffect(() => {
-    const handler = (e) => {
-      const {lineId, stationId} = e.detail || {};
-      if(lineId)    setExpanded(e=>({...e,[lineId]:true}));
-      if(stationId) setExpanded(e=>({...e,["s_"+stationId]:true}));
-    };
-    window.addEventListener("sop-nav", handler);
-    return () => window.removeEventListener("sop-nav", handler);
-  }, []);
-
   if(!open) return null;
 
   const assignedIds = new Set(lines.flatMap(l=>l.stationIds));
 
+  const navBtn = (onClick) => (
+    <button
+      onClick={e=>{ e.stopPropagation(); onClick(); }}
+      title="Jump to this item in the workspace"
+      style={{flexShrink:0,background:TEAL,color:"white",border:"none",borderRadius:3,
+              padding:"1px 6px",cursor:"pointer",fontSize:10,opacity:0.85,lineHeight:1.6}}>
+      →
+    </button>
+  );
+
   return (
-    <div style={{width:230,flexShrink:0,background:"#f9f9f9",borderRight:"1px solid #e0e0e0",
-                 overflowY:"auto",fontSize:12,alignSelf:"stretch"}}>
+    <div style={{
+      width:230, flexShrink:0, background:"#f9f9f9", borderRight:"1px solid #e0e0e0",
+      fontSize:12,
+      // Sticky — stays visible while workspace scrolls
+      position:"sticky", top:46, height:"calc(100vh - 46px)",
+      overflowY:"auto", alignSelf:"flex-start",
+    }}>
       <div style={{padding:"9px 12px",fontWeight:700,fontSize:10,textTransform:"uppercase",
                    letterSpacing:"0.6px",color:"#888",borderBottom:"1px solid #e0e0e0",
                    background:"white",position:"sticky",top:0,zIndex:1}}>
@@ -2867,34 +2901,50 @@ function SidebarNav({ lines, stations, open, onNavigate, onDeleteStation, onDele
         const lineOpen = !!expanded[line.id];
         return (
           <div key={line.id}>
-            <div onClick={()=>{ toggle(line.id); onNavigate("line",line.id); }}
-              style={{display:"flex",alignItems:"center",gap:5,padding:"7px 10px",
+            {/* Line row — click chevron/name to expand tree only, → button to navigate */}
+            <div
+              style={{display:"flex",alignItems:"center",gap:5,padding:"7px 8px 7px 10px",
                       cursor:"pointer",borderBottom:"1px solid #efefef",
                       background:lineOpen?"#e0f2f1":"white"}}
               onMouseEnter={e=>{if(!lineOpen)e.currentTarget.style.background="#f5fffe";}}
-              onMouseLeave={e=>{if(!lineOpen)e.currentTarget.style.background="white";}}>
-              <span style={{fontSize:10,color:TEAL,width:10,flexShrink:0}}>{lineOpen?"▼":"▶"}</span>
-              <span style={{flexShrink:0}}>🏗️</span>
-              <span style={{fontWeight:700,color:TEAL_DARK,flex:1,overflow:"hidden",
-                            textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:12}}>
+              onMouseLeave={e=>{if(!lineOpen)e.currentTarget.style.background=lineOpen?"#e0f2f1":"white";}}>
+              {/* Expand/collapse chevron */}
+              <span onClick={()=>toggle(line.id)}
+                style={{fontSize:10,color:TEAL,width:12,flexShrink:0,userSelect:"none"}}>
+                {lineOpen?"▼":"▶"}
+              </span>
+              {/* Label — click to expand tree */}
+              <span onClick={()=>toggle(line.id)} style={{fontSize:13,flexShrink:0}}>🏗️</span>
+              <span onClick={()=>toggle(line.id)}
+                style={{fontWeight:700,color:TEAL_DARK,flex:1,overflow:"hidden",
+                        textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:12,userSelect:"none"}}>
                 {line.name||"New Line"}
               </span>
-              <span style={{fontSize:10,color:"#bbb",flexShrink:0}}>{lineStations.length}</span>
+              <span onClick={()=>toggle(line.id)}
+                style={{fontSize:10,color:"#bbb",flexShrink:0,marginRight:4}}>
+                {lineStations.length}
+              </span>
+              {/* Navigate button */}
+              {navBtn(()=>onNavigate("line",line.id))}
             </div>
 
             {lineOpen && lineStations.map(s => {
               const sOpen = !!expanded["s_"+s.id];
               return (
                 <div key={s.id}>
-                  <div onClick={()=>{ toggle("s_"+s.id); onNavigate("station",line.id,s.id); }}
-                    style={{display:"flex",alignItems:"center",gap:5,padding:"5px 10px 5px 20px",
+                  {/* Station row */}
+                  <div
+                    style={{display:"flex",alignItems:"center",gap:5,padding:"5px 8px 5px 20px",
                             cursor:"pointer",borderBottom:"1px solid #f5f5f5",
                             background:sOpen?"#f0fdf4":"#fafafa"}}
                     onMouseEnter={e=>{if(!sOpen)e.currentTarget.style.background="#f0f8f0";}}
-                    onMouseLeave={e=>{if(!sOpen)e.currentTarget.style.background="#fafafa";}}>
-                    <span style={{fontSize:10,color:"#bbb",width:10,flexShrink:0}}>{s.tasks.length?"▶":""}</span>
-                    <span style={{flexShrink:0}}>🏭</span>
-                    <div style={{flex:1,overflow:"hidden",minWidth:0}}>
+                    onMouseLeave={e=>{e.currentTarget.style.background=sOpen?"#f0fdf4":"#fafafa";}}>
+                    <span onClick={()=>toggle("s_"+s.id)}
+                      style={{fontSize:10,color:"#bbb",width:10,flexShrink:0,userSelect:"none"}}>
+                      {s.tasks.length?(sOpen?"▼":"▶"):""}
+                    </span>
+                    <span onClick={()=>toggle("s_"+s.id)} style={{flexShrink:0}}>🏭</span>
+                    <div onClick={()=>toggle("s_"+s.id)} style={{flex:1,overflow:"hidden",minWidth:0}}>
                       <div style={{fontWeight:600,color:TEAL_DARK,fontSize:11,
                                    overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                         {s.stationNo||s.sopId||"Station"}
@@ -2904,21 +2954,28 @@ function SidebarNav({ lines, stations, open, onNavigate, onDeleteStation, onDele
                         {s.stationDesc}
                       </div>}
                     </div>
-                    <span style={{fontSize:10,color:"#bbb",flexShrink:0}}>{s.tasks.length}</span>
+                    <span onClick={()=>toggle("s_"+s.id)}
+                      style={{fontSize:10,color:"#bbb",flexShrink:0,marginRight:4}}>
+                      {s.tasks.length}
+                    </span>
+                    {navBtn(()=>onNavigate("station",line.id,s.id))}
                   </div>
 
+                  {/* Task rows */}
                   {sOpen && s.tasks.map(t=>(
                     <div key={t.id}
                       onClick={()=>onNavigate("task",line.id,s.id,t.id)}
-                      style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px 4px 32px",
+                      title="Click to jump to this task"
+                      style={{display:"flex",alignItems:"center",gap:5,padding:"4px 8px 4px 32px",
                               cursor:"pointer",borderBottom:"1px solid #f5f5f5",background:"white"}}
-                      onMouseEnter={e=>e.currentTarget.style.background="#f5f5f5"}
+                      onMouseEnter={e=>e.currentTarget.style.background="#f0f8ff"}
                       onMouseLeave={e=>e.currentTarget.style.background="white"}>
                       <span style={{flexShrink:0,fontSize:11}}>📋</span>
                       <div style={{flex:1,overflow:"hidden",minWidth:0}}>
                         <span style={{color:"#aaa",fontSize:10}}>Task {t.taskNo}&nbsp;</span>
-                        <span style={{color:"#555",fontSize:11,overflow:"hidden",
-                                      textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>
+                        <span style={{color:"#444",fontSize:11,overflow:"hidden",
+                                      textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",
+                                      fontWeight:600}}>
                           {t.description||"(untitled)"}
                         </span>
                       </div>
@@ -2932,6 +2989,7 @@ function SidebarNav({ lines, stations, open, onNavigate, onDeleteStation, onDele
         );
       })}
 
+      {/* Unassigned stations */}
       {(() => {
         const unassigned = stations.filter(s=>!assignedIds.has(s.id));
         if(!unassigned.length) return null;
@@ -2943,8 +3001,7 @@ function SidebarNav({ lines, stations, open, onNavigate, onDeleteStation, onDele
               <span style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.4px",color:"#aaa"}}>
                 Unassigned ({unassigned.length})
               </span>
-              <button
-                onClick={()=>onDeleteAll(unassigned)}
+              <button onClick={()=>onDeleteAll(unassigned)}
                 title="Delete all unassigned stations"
                 style={{fontSize:10,padding:"1px 6px",background:"#ffebee",border:"1px solid #ef9a9a",
                         borderRadius:3,cursor:"pointer",color:"#c62828",lineHeight:1.4}}>
@@ -2953,9 +3010,8 @@ function SidebarNav({ lines, stations, open, onNavigate, onDeleteStation, onDele
             </div>
             {unassigned.map(s=>(
               <div key={s.id}
-                style={{display:"flex",alignItems:"center",gap:5,padding:"5px 10px 5px 14px",
-                        borderBottom:"1px solid #f5f5f5",background:"white",
-                        transition:"background 0.1s"}}
+                style={{display:"flex",alignItems:"center",gap:5,padding:"5px 8px 5px 14px",
+                        borderBottom:"1px solid #f5f5f5",background:"white",transition:"background 0.1s"}}
                 onMouseEnter={e=>e.currentTarget.style.background="#fafafa"}
                 onMouseLeave={e=>e.currentTarget.style.background="white"}>
                 <span style={{fontSize:12,flexShrink:0}}>🏭</span>
@@ -2968,8 +3024,7 @@ function SidebarNav({ lines, stations, open, onNavigate, onDeleteStation, onDele
                   {s.stationDesc&&<div style={{color:"#ccc",fontSize:10,overflow:"hidden",
                                               textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.stationDesc}</div>}
                 </div>
-                <button
-                  onClick={e=>{e.stopPropagation();onDeleteStation(s);}}
+                <button onClick={e=>{e.stopPropagation();onDeleteStation(s);}}
                   title="Delete this station"
                   style={{background:"none",border:"none",color:"#ef9a9a",cursor:"pointer",
                           fontSize:13,padding:"0 2px",lineHeight:1,flexShrink:0}}>✕</button>
@@ -3570,7 +3625,7 @@ export default function App() {
   return (
     <div style={{minHeight:"100vh",background:"#f0f4f8",fontFamily:"Arial,sans-serif"}}>
       {/* Nav */}
-      <div style={{background:TEAL_DARK,color:"white",display:"flex",alignItems:"stretch",padding:"0 14px",flexWrap:"wrap"}}>
+      <div style={{background:TEAL_DARK,color:"white",display:"flex",alignItems:"stretch",padding:"0 14px",flexWrap:"wrap",position:"sticky",top:0,zIndex:500,boxShadow:"0 2px 8px rgba(0,0,0,0.2)"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px 12px 0",flexShrink:0}}>
           <span style={{background:TEAL,padding:"3px 10px",borderRadius:4,fontWeight:900,fontSize:16,letterSpacing:1}}>LVT</span>
           <span style={{fontWeight:700,fontSize:14}}>SOP Builder</span>
