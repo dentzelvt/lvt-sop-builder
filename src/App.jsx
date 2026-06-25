@@ -936,44 +936,35 @@ function RichTextEditor({ value, onChange, placeholder, minRows=2 }) {
 
 // ─── Lines Manager ────────────────────────────────────────────────────────────
 // ─── Add Existing Station Picker ─────────────────────────────────────────────
-function AddExistingStation({ available, assignedIds, onAdd }) {
+function AddExistingStation({ available, onAdd }) {
   const [selId, setSelId] = useState("");
-  // IDs are numbers but select values are strings — coerce for comparison
   const selected = available.find(s => String(s.id) === selId);
 
-  const doAdd = () => {
-    if(!selected) return;
-    onAdd(selected);
-    setSelId("");
-  };
+  const doAdd = () => { if(!selected) return; onAdd(selected); setSelId(""); };
+
+  if(!available.length) return null;
 
   return (
     <div style={{borderTop:"1px solid #e0e0e0",paddingTop:10,marginTop:8,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-      <label style={{fontSize:12,color:"#555",fontWeight:600,flexShrink:0}}>Add existing station:</label>
+      <label style={{fontSize:12,color:"#555",fontWeight:600,flexShrink:0}}>Add unassigned station:</label>
       <select value={selId} onChange={e=>setSelId(e.target.value)}
         style={{flex:1,minWidth:200,padding:"5px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12,background:"white"}}>
         <option value="">— select a station —</option>
-        {available.map(s=>{
-          const inOtherLine = assignedIds.has(s.id);
-          return (
-            <option key={s.id} value={String(s.id)}>
-              {s.stationNo||s.sopId||"Station"}{s.stationDesc?" — "+s.stationDesc:""}
-              {inOtherLine?" (in another line)":""}
-            </option>
-          );
-        })}
+        {available.map(s=>(
+          <option key={s.id} value={String(s.id)}>
+            {s.stationNo||s.sopId||"Station"}{s.stationDesc?" — "+s.stationDesc:""}
+          </option>
+        ))}
       </select>
-      {/* Preview of selected station */}
       {selected && (
         <span style={{fontSize:11,color:"#555",background:"#f5f5f5",padding:"3px 8px",borderRadius:4,border:"1px solid #e0e0e0",flexShrink:0}}>
           {selected.tasks.length} task(s) · {fmtTime(sumTasks(selected.tasks))}
-          {assignedIds.has(selected.id) && <span style={{color:"#ff6f00",marginLeft:6}}>⚠ in another line</span>}
         </span>
       )}
       <button onClick={doAdd} disabled={!selected}
         style={{padding:"5px 14px",background:selected?TEAL:"#e0e0e0",color:selected?"white":"#aaa",
                 border:"none",borderRadius:5,cursor:selected?"pointer":"not-allowed",
-                fontSize:12,fontWeight:700,flexShrink:0,transition:"background 0.15s"}}>
+                fontSize:12,fontWeight:700,flexShrink:0}}>
         + Add
       </button>
     </div>
@@ -1179,7 +1170,9 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                   <button onClick={async(e)=>{e.stopPropagation();
                     const lh = lineHandles[line.id];
                     const name=(line.name||"Line").replace(/[^a-zA-Z0-9_\- ]/g,"").trim().replace(/\s+/g,"_")+`_${new Date().toISOString().slice(0,10)}`;
-                    await smartSave(lineStations,[line],name,lh?.handle||null,(h,n)=>setLineHandle(line.id,h,n),flash);
+                    // Rebuild fresh from stations prop — avoids stale closure issue
+                    const freshLineStations = line.stationIds.map(id=>stations.find(s=>s.id===id)).filter(Boolean);
+                    await smartSave(freshLineStations,[line],name,lh?.handle||null,(h,n)=>setLineHandle(line.id,h,n),flash);
                   }} style={{background:lineHandles[line.id]?"rgba(255,255,255,0.3)":"rgba(255,255,255,0.2)",
                              border:lineHandles[line.id]?"2px solid #a5d6a7":"1px solid rgba(255,255,255,0.5)",
                              borderRadius:lineHandles[line.id]?"4px 0 0 4px":"4px",
@@ -1324,11 +1317,10 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                     </div>
                   ))}
 
-                  {/* Add existing station — compact dropdown */}
-                  {stations.filter(s=>!line.stationIds.includes(s.id)).length>0 && (
+                  {/* Add existing station — only shows truly unassigned stations */}
+                  {stations.filter(s=>!assignedIds.has(s.id)&&!line.stationIds.includes(s.id)).length>0 && (
                     <AddExistingStation
-                      available={stations.filter(s=>!line.stationIds.includes(s.id))}
-                      assignedIds={assignedIds}
+                      available={stations.filter(s=>!assignedIds.has(s.id)&&!line.stationIds.includes(s.id))}
                       onAdd={(s)=>{
                         const newIds=[...line.stationIds,s.id];
                         updLine({...line,stationIds:newIds});
@@ -2839,7 +2831,7 @@ function ImportWizard({ currentStations, currentLines, onClose, onImport }) {
 }
 
 // ─── Sidebar Navigator ────────────────────────────────────────────────────────
-function SidebarNav({ lines, stations, open, onNavigate }) {
+function SidebarNav({ lines, stations, open, onNavigate, onDeleteStation, onDeleteAll }) {
   const [expanded, setExpanded] = useState({});
   const toggle = (key) => setExpanded(e=>({...e,[key]:!e[key]}));
 
@@ -2945,26 +2937,42 @@ function SidebarNav({ lines, stations, open, onNavigate }) {
         if(!unassigned.length) return null;
         return (
           <div>
-            <div style={{padding:"5px 10px",fontSize:10,fontWeight:700,textTransform:"uppercase",
-                         letterSpacing:"0.4px",color:"#aaa",background:"#f5f5f5",
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+                         padding:"5px 10px",background:"#f5f5f5",
                          borderTop:"1px solid #e0e0e0",borderBottom:"1px solid #e0e0e0"}}>
-              Unassigned
+              <span style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.4px",color:"#aaa"}}>
+                Unassigned ({unassigned.length})
+              </span>
+              <button
+                onClick={()=>onDeleteAll(unassigned)}
+                title="Delete all unassigned stations"
+                style={{fontSize:10,padding:"1px 6px",background:"#ffebee",border:"1px solid #ef9a9a",
+                        borderRadius:3,cursor:"pointer",color:"#c62828",lineHeight:1.4}}>
+                Delete all
+              </button>
             </div>
             {unassigned.map(s=>(
               <div key={s.id}
-                onClick={()=>onNavigate("station",null,s.id)}
                 style={{display:"flex",alignItems:"center",gap:5,padding:"5px 10px 5px 14px",
-                        cursor:"pointer",borderBottom:"1px solid #f5f5f5",background:"white"}}
+                        borderBottom:"1px solid #f5f5f5",background:"white",
+                        transition:"background 0.1s"}}
                 onMouseEnter={e=>e.currentTarget.style.background="#fafafa"}
                 onMouseLeave={e=>e.currentTarget.style.background="white"}>
-                <span>🏭</span>
-                <div style={{flex:1,overflow:"hidden",minWidth:0}}>
+                <span style={{fontSize:12,flexShrink:0}}>🏭</span>
+                <div style={{flex:1,overflow:"hidden",minWidth:0,cursor:"pointer"}}
+                     onClick={()=>onNavigate("station",null,s.id)}>
                   <div style={{fontWeight:600,color:"#aaa",fontSize:11,overflow:"hidden",
                                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                     {s.stationNo||s.sopId||"Station"}
                   </div>
-                  {s.stationDesc&&<div style={{color:"#ccc",fontSize:10}}>{s.stationDesc}</div>}
+                  {s.stationDesc&&<div style={{color:"#ccc",fontSize:10,overflow:"hidden",
+                                              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.stationDesc}</div>}
                 </div>
+                <button
+                  onClick={e=>{e.stopPropagation();onDeleteStation(s);}}
+                  title="Delete this station"
+                  style={{background:"none",border:"none",color:"#ef9a9a",cursor:"pointer",
+                          fontSize:13,padding:"0 2px",lineHeight:1,flexShrink:0}}>✕</button>
               </div>
             ))}
           </div>
@@ -3732,8 +3740,16 @@ export default function App() {
           onNavigate={(type,lineId,stationId,taskId)=>{
             window.dispatchEvent(new CustomEvent("sop-nav",{detail:{type,lineId,stationId,taskId}}));
           }}
+          onDeleteStation={(s)=>confirmDelete("station",s.stationNo||s.sopId||"this station",{stationId:s.id})}
+          onDeleteAll={(unassigned)=>{
+            if(!unassigned.length) return;
+            if(window.confirm(`Delete all ${unassigned.length} unassigned station(s)? This cannot be undone.`)){
+              setStations(prev=>prev.filter(s=>!unassigned.find(u=>u.id===s.id)));
+            }
+          }}
         />
-        <div style={{flex:1,minWidth:0,maxWidth:sidebarOpen&&tab==="lines"?"calc(100% - 230px)":"100%",margin:"0 auto",padding:"18px 14px",overflowX:"hidden"}}>
+        <div style={{flex:1,minWidth:0,overflowX:"hidden"}}>
+        <div style={{maxWidth:1080,margin:"0 auto",padding:"18px 14px"}}>
         {tab==="lines" && (
           <LinesManager
             lines={lines}
@@ -3758,8 +3774,9 @@ export default function App() {
             <LineBalance stations={stations} lines={lines}/>
           </div>
         )}
-        </div>
-      </div>
+        </div>{/* /maxWidth */}
+        </div>{/* /flex content */}
+      </div>{/* /flex row */}
       {preview&&<SOPPreview station={preview} onClose={()=>setPreview(null)}/>}
       {showSaveInfo&&<SaveInfoModal onExport={()=>setShowExportSave(true)} onClose={()=>setShowSaveInfo(false)}/>}
       {showExportSave&&<ExportSaveModal lines={lines} stations={stations} onClose={()=>{setShowExportSave(false);flash("✓ File downloaded");}}/>}
