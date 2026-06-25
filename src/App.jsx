@@ -983,8 +983,27 @@ function AddExistingStation({ available, assignedIds, onAdd }) {
 function LinesManager({ lines, stations, onLinesChange, onStationsChange, updStation, preview, setPreview, stationHandles, setStationHandle, lineHandles, setLineHandle, flash, confirmDelete, openLineFile }) {
   const [activeLineId,    setActiveLineId]    = useState(null);
   const [activeStationId, setActiveStationId] = useState(null);
-  const [lineReloadPrompt, setLineReloadPrompt] = useState(null); // {line, fileUpdatedAt, loadedAt}
-  const lineOpenedAt = useRef({}); // lineId → ISO timestamp when last opened/reloaded
+  const [lineReloadPrompt, setLineReloadPrompt] = useState(null);
+  const lineOpenedAt = useRef({});
+
+  // Listen for sidebar navigation events
+  useEffect(() => {
+    const handler = (e) => {
+      const { type, lineId, stationId, taskId } = e.detail || {};
+      if(lineId)    setActiveLineId(lineId);
+      if(stationId) setActiveStationId(stationId);
+      // Scroll target into view after state update
+      setTimeout(() => {
+        const id = taskId ? `task-${taskId}` : stationId ? `station-${stationId}` : lineId ? `line-${lineId}` : null;
+        if(id) {
+          const el = document.getElementById(id);
+          if(el) el.scrollIntoView({behavior:"smooth", block:"start"});
+        }
+      }, 120);
+    };
+    window.addEventListener("sop-nav", handler);
+    return () => window.removeEventListener("sop-nav", handler);
+  }, []);
 
   const addLine = () => {
     const l = mkLine();
@@ -1121,7 +1140,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
         const isLineOpen   = activeLineId===line.id;
 
         return (
-          <div key={line.id} style={{border:isLineOpen?`2px solid ${TEAL}`:"1px solid #ddd",borderRadius:10,marginBottom:10,
+          <div key={line.id} id={`line-${line.id}`} style={{border:isLineOpen?`2px solid ${TEAL}`:"1px solid #ddd",borderRadius:10,marginBottom:10,
               overflow:"visible",background:"white",boxShadow:isLineOpen?"0 2px 12px rgba(0,137,123,0.12)":"0 1px 3px rgba(0,0,0,0.06)"}}>
 
             {/* ── Line header bar ── */}
@@ -1276,6 +1295,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                           });
                         }
                       }}
+                      id={`station-${s.id}`}
                       style={{marginBottom:6}}>
                       {/* Drag handle row above StationEditor */}
                       <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
@@ -2818,6 +2838,142 @@ function ImportWizard({ currentStations, currentLines, onClose, onImport }) {
   );
 }
 
+// ─── Sidebar Navigator ────────────────────────────────────────────────────────
+function SidebarNav({ lines, stations, open, onNavigate }) {
+  const [expanded, setExpanded] = useState({});
+  const toggle = (key) => setExpanded(e=>({...e,[key]:!e[key]}));
+
+  useEffect(() => {
+    const handler = (e) => {
+      const {lineId, stationId} = e.detail || {};
+      if(lineId)    setExpanded(e=>({...e,[lineId]:true}));
+      if(stationId) setExpanded(e=>({...e,["s_"+stationId]:true}));
+    };
+    window.addEventListener("sop-nav", handler);
+    return () => window.removeEventListener("sop-nav", handler);
+  }, []);
+
+  if(!open) return null;
+
+  const assignedIds = new Set(lines.flatMap(l=>l.stationIds));
+
+  return (
+    <div style={{width:230,flexShrink:0,background:"#f9f9f9",borderRight:"1px solid #e0e0e0",
+                 overflowY:"auto",fontSize:12,alignSelf:"stretch"}}>
+      <div style={{padding:"9px 12px",fontWeight:700,fontSize:10,textTransform:"uppercase",
+                   letterSpacing:"0.6px",color:"#888",borderBottom:"1px solid #e0e0e0",
+                   background:"white",position:"sticky",top:0,zIndex:1}}>
+        Navigator
+      </div>
+
+      {lines.length===0 && (
+        <div style={{padding:"16px 12px",color:"#bbb",fontStyle:"italic"}}>No lines yet</div>
+      )}
+
+      {lines.map(line => {
+        const lineStations = line.stationIds.map(id=>stations.find(s=>s.id===id)).filter(Boolean);
+        const lineOpen = !!expanded[line.id];
+        return (
+          <div key={line.id}>
+            <div onClick={()=>{ toggle(line.id); onNavigate("line",line.id); }}
+              style={{display:"flex",alignItems:"center",gap:5,padding:"7px 10px",
+                      cursor:"pointer",borderBottom:"1px solid #efefef",
+                      background:lineOpen?"#e0f2f1":"white"}}
+              onMouseEnter={e=>{if(!lineOpen)e.currentTarget.style.background="#f5fffe";}}
+              onMouseLeave={e=>{if(!lineOpen)e.currentTarget.style.background="white";}}>
+              <span style={{fontSize:10,color:TEAL,width:10,flexShrink:0}}>{lineOpen?"▼":"▶"}</span>
+              <span style={{flexShrink:0}}>🏗️</span>
+              <span style={{fontWeight:700,color:TEAL_DARK,flex:1,overflow:"hidden",
+                            textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:12}}>
+                {line.name||"New Line"}
+              </span>
+              <span style={{fontSize:10,color:"#bbb",flexShrink:0}}>{lineStations.length}</span>
+            </div>
+
+            {lineOpen && lineStations.map(s => {
+              const sOpen = !!expanded["s_"+s.id];
+              return (
+                <div key={s.id}>
+                  <div onClick={()=>{ toggle("s_"+s.id); onNavigate("station",line.id,s.id); }}
+                    style={{display:"flex",alignItems:"center",gap:5,padding:"5px 10px 5px 20px",
+                            cursor:"pointer",borderBottom:"1px solid #f5f5f5",
+                            background:sOpen?"#f0fdf4":"#fafafa"}}
+                    onMouseEnter={e=>{if(!sOpen)e.currentTarget.style.background="#f0f8f0";}}
+                    onMouseLeave={e=>{if(!sOpen)e.currentTarget.style.background="#fafafa";}}>
+                    <span style={{fontSize:10,color:"#bbb",width:10,flexShrink:0}}>{s.tasks.length?"▶":""}</span>
+                    <span style={{flexShrink:0}}>🏭</span>
+                    <div style={{flex:1,overflow:"hidden",minWidth:0}}>
+                      <div style={{fontWeight:600,color:TEAL_DARK,fontSize:11,
+                                   overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {s.stationNo||s.sopId||"Station"}
+                      </div>
+                      {s.stationDesc&&<div style={{color:"#999",fontSize:10,overflow:"hidden",
+                                                   textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {s.stationDesc}
+                      </div>}
+                    </div>
+                    <span style={{fontSize:10,color:"#bbb",flexShrink:0}}>{s.tasks.length}</span>
+                  </div>
+
+                  {sOpen && s.tasks.map(t=>(
+                    <div key={t.id}
+                      onClick={()=>onNavigate("task",line.id,s.id,t.id)}
+                      style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px 4px 32px",
+                              cursor:"pointer",borderBottom:"1px solid #f5f5f5",background:"white"}}
+                      onMouseEnter={e=>e.currentTarget.style.background="#f5f5f5"}
+                      onMouseLeave={e=>e.currentTarget.style.background="white"}>
+                      <span style={{flexShrink:0,fontSize:11}}>📋</span>
+                      <div style={{flex:1,overflow:"hidden",minWidth:0}}>
+                        <span style={{color:"#aaa",fontSize:10}}>Task {t.taskNo}&nbsp;</span>
+                        <span style={{color:"#555",fontSize:11,overflow:"hidden",
+                                      textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>
+                          {t.description||"(untitled)"}
+                        </span>
+                      </div>
+                      <span style={{fontSize:10,color:"#ddd",flexShrink:0}}>{t.steps.length}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+
+      {(() => {
+        const unassigned = stations.filter(s=>!assignedIds.has(s.id));
+        if(!unassigned.length) return null;
+        return (
+          <div>
+            <div style={{padding:"5px 10px",fontSize:10,fontWeight:700,textTransform:"uppercase",
+                         letterSpacing:"0.4px",color:"#aaa",background:"#f5f5f5",
+                         borderTop:"1px solid #e0e0e0",borderBottom:"1px solid #e0e0e0"}}>
+              Unassigned
+            </div>
+            {unassigned.map(s=>(
+              <div key={s.id}
+                onClick={()=>onNavigate("station",null,s.id)}
+                style={{display:"flex",alignItems:"center",gap:5,padding:"5px 10px 5px 14px",
+                        cursor:"pointer",borderBottom:"1px solid #f5f5f5",background:"white"}}
+                onMouseEnter={e=>e.currentTarget.style.background="#fafafa"}
+                onMouseLeave={e=>e.currentTarget.style.background="white"}>
+                <span>🏭</span>
+                <div style={{flex:1,overflow:"hidden",minWidth:0}}>
+                  <div style={{fontWeight:600,color:"#aaa",fontSize:11,overflow:"hidden",
+                               textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {s.stationNo||s.sopId||"Station"}
+                  </div>
+                  {s.stationDesc&&<div style={{color:"#ccc",fontSize:10}}>{s.stationDesc}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 // ─── Export Save Modal ────────────────────────────────────────────────────────
 function ExportSaveModal({ lines, stations, onClose }) {
   const [mode, setMode] = useState("all"); // "all" | "line"
@@ -3235,6 +3391,7 @@ export default function App() {
   const [showImport,     setShowImport]     = useState(false);
   const [showExportSave, setShowExportSave] = useState(false);
   const [deletePrompt,   setDeletePrompt]   = useState(null); // {type, name, ids}
+  const [sidebarOpen,    setSidebarOpen]    = useState(true);
   const [showNewProject, setShowNewProject] = useState(false);
   const [csvPrompt,      setCsvPrompt]      = useState(null); // {baseName, onLink, onSkip}
   const [mergePrompt,    setMergePrompt]    = useState(null); // {conflicts, nonConflicts, incomingStations}
@@ -3413,6 +3570,13 @@ export default function App() {
         {[{id:"lines",label:"🏗️ Lines"},{id:"balance",label:"📊 Line Balance"}].map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} style={{background:tab===t.id?"rgba(255,255,255,0.18)":"transparent",border:"none",borderBottom:tab===t.id?"3px solid white":"3px solid transparent",color:"white",padding:"0 14px",cursor:"pointer",fontSize:13,fontWeight:tab===t.id?700:400,alignSelf:"stretch"}}>{t.label}</button>
         ))}
+        <button onClick={()=>setSidebarOpen(o=>!o)} title={sidebarOpen?"Hide navigator":"Show navigator"}
+          style={{background:sidebarOpen?"rgba(255,255,255,0.18)":"transparent",border:"none",
+                  borderBottom:sidebarOpen?"3px solid white":"3px solid transparent",
+                  color:"white",padding:"0 12px",cursor:"pointer",fontSize:15,alignSelf:"stretch",
+                  letterSpacing:1}}>
+          ☰
+        </button>
         <div style={{flex:1}}/>
         <div style={{display:"flex",alignItems:"center",gap:5,padding:"8px 0"}}>
           {activeFileName&&!saveMsg&&(
@@ -3560,7 +3724,16 @@ export default function App() {
         </div>
       </div>
 
-      <div style={{maxWidth:1080,margin:"0 auto",padding:"18px 14px"}}>
+      <div style={{display:"flex",minHeight:"calc(100vh - 52px)"}}>
+        <SidebarNav
+          lines={lines}
+          stations={stations}
+          open={sidebarOpen && tab==="lines"}
+          onNavigate={(type,lineId,stationId,taskId)=>{
+            window.dispatchEvent(new CustomEvent("sop-nav",{detail:{type,lineId,stationId,taskId}}));
+          }}
+        />
+        <div style={{flex:1,minWidth:0,maxWidth:sidebarOpen&&tab==="lines"?"calc(100% - 230px)":"100%",margin:"0 auto",padding:"18px 14px",overflowX:"hidden"}}>
         {tab==="lines" && (
           <LinesManager
             lines={lines}
@@ -3582,10 +3755,10 @@ export default function App() {
 
         {tab==="balance" && (
           <div style={{background:"white",borderRadius:12,padding:22,boxShadow:"0 1px 5px rgba(0,0,0,0.07)"}}>
-
             <LineBalance stations={stations} lines={lines}/>
           </div>
         )}
+        </div>
       </div>
       {preview&&<SOPPreview station={preview} onClose={()=>setPreview(null)}/>}
       {showSaveInfo&&<SaveInfoModal onExport={()=>setShowExportSave(true)} onClose={()=>setShowSaveInfo(false)}/>}
