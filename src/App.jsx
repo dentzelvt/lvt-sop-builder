@@ -2211,25 +2211,32 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
 
 // ─── Line Balance ─────────────────────────────────────────────────────────────
 function LineBalance({ stations, lines }) {
-  const [scope,       setScope]       = useState("all");   // "all" | "line" | "station"
-  const [selLineId,   setSelLineId]   = useState(lines[0]?.id || "");
-  const [selStationId,setSelStationId]= useState(stations[0]?.id || "");
+  const [scope,        setScope]       = useState("all");
+  const [selLineId,    setSelLineId]   = useState(lines[0]?.id || "");
+  const [selStationId, setSelStationId]= useState(String(stations[0]?.id || ""));
+  const [taktRaw,      setTaktRaw]     = useState(""); // user input — seconds or MM:SS
 
-  // ── Determine which stations to analyse ────────────────────────────────────
+  // Parse TAKT time using same logic as cycle times
+  const taktMin = taktRaw.trim() ? parseTime(taktRaw) : null;
+
+  // Ensure selLineId and selStationId stay valid when stations/lines change
+  const validLineId    = lines.find(l=>l.id===selLineId)    ? selLineId    : (lines[0]?.id||"");
+  const validStationId = stations.find(s=>String(s.id)===selStationId) ? selStationId : String(stations[0]?.id||"");
+
+  // ── Determine which stations to analyse ──────────────────────────────────
   const scopedStations = (() => {
     if(scope === "line") {
-      const line = lines.find(l=>l.id===selLineId);
+      const line = lines.find(l=>l.id===validLineId);
       if(!line) return [];
       return line.stationIds.map(id=>stations.find(s=>s.id===id)).filter(Boolean);
     }
     if(scope === "station") {
-      const s = stations.find(s=>s.id===selStationId);
+      const s = stations.find(s=>String(s.id)===validStationId);
       return s ? [s] : [];
     }
     return stations;
   })();
 
-  // ── For single-station scope, show task-level breakdown ────────────────────
   const isSingleStation = scope === "station" && scopedStations.length === 1;
   const singleStation   = isSingleStation ? scopedStations[0] : null;
 
@@ -2245,12 +2252,15 @@ function LineBalance({ stations, lines }) {
         tasks:s.tasks.length, steps:s.tasks.reduce((n,t)=>n+t.steps.length,0),
       }));
 
-  const max = Math.max(...data.map(d=>d.total), 0.01);
-  const avg = data.length ? data.reduce((s,d)=>s+d.total,0)/data.length : 0;
+  const max    = Math.max(...data.map(d=>d.total), taktMin||0, 0.01);
+  const avg    = data.length ? data.reduce((s,d)=>s+d.total,0)/data.length : 0;
+  // Reference line for chart — TAKT if set, otherwise avg
+  const refLine = taktMin || avg;
+
   const scopeLabel = scope==="line"
-    ? (lines.find(l=>l.id===selLineId)?.name || "Line")
+    ? (lines.find(l=>l.id===validLineId)?.name || "Line")
     : scope==="station"
-      ? (stations.find(s=>s.id===selStationId)?.stationNo || "Station")
+      ? (stations.find(s=>String(s.id)===validStationId)?.stationNo || "Station")
       : "All Stations";
 
   if(!stations.length) return (
@@ -2262,58 +2272,84 @@ function LineBalance({ stations, lines }) {
 
   return (
     <div>
-      {/* ── Scope selector ── */}
-      <div style={{background:"#f9f9f9",border:"1px solid #e0e0e0",borderRadius:8,padding:"12px 16px",marginBottom:16,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+      {/* ── Scope + TAKT bar ── */}
+      <div style={{background:"#f9f9f9",border:"1px solid #e0e0e0",borderRadius:8,padding:"12px 16px",
+                   marginBottom:16,display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
+
+        {/* Scope */}
         <span style={{fontWeight:600,fontSize:12,color:"#555",flexShrink:0}}>Analyse:</span>
 
-        {/* All */}
         <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12}}>
           <input type="radio" name="lbscope" value="all" checked={scope==="all"} onChange={()=>setScope("all")} style={{accentColor:TEAL}}/>
           All Stations
         </label>
 
-        {/* By Line */}
         {lines.length > 0 && (
           <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12}}>
             <input type="radio" name="lbscope" value="line" checked={scope==="line"} onChange={()=>setScope("line")} style={{accentColor:TEAL}}/>
             Line:
-            <select value={lines.find(l=>l.id===selLineId)?selLineId:(lines[0]?.id||"")}
+            <select value={validLineId}
               onChange={e=>{setSelLineId(e.target.value);setScope("line");}}
               style={{padding:"2px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12,background:"white"}}>
               {lines.map(l=>{
-                const cnt = l.stationIds.filter(id=>stations.find(s=>s.id===id)).length;
-                return <option key={l.id} value={l.id}>{l.name||"(unnamed)"} ({cnt} stations)</option>;
+                const cnt=l.stationIds.filter(id=>stations.find(s=>s.id===id)).length;
+                return <option key={l.id} value={l.id}>{l.name||"(unnamed)"} ({cnt})</option>;
               })}
             </select>
           </label>
         )}
 
-        {/* By Station */}
         {stations.length > 0 && (
           <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12}}>
             <input type="radio" name="lbscope" value="station" checked={scope==="station"} onChange={()=>setScope("station")} style={{accentColor:TEAL}}/>
             Station:
-            <select value={stations.find(s=>s.id===selStationId)?selStationId:(stations[0]?.id||"")}
+            <select value={validStationId}
               onChange={e=>{setSelStationId(e.target.value);setScope("station");}}
               style={{padding:"2px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12,background:"white"}}>
               {stations.map(s=>(
-                <option key={s.id} value={s.id}>{s.stationNo||s.sopId||"Station"}{s.stationDesc?" — "+s.stationDesc:""}</option>
+                <option key={s.id} value={String(s.id)}>
+                  {s.stationNo||s.sopId||"Station"}{s.stationDesc?" — "+s.stationDesc:""}
+                </option>
               ))}
             </select>
           </label>
         )}
+
+        {/* Divider */}
+        <div style={{width:1,height:24,background:"#ddd",flexShrink:0}}/>
+
+        {/* TAKT input */}
+        <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,flexShrink:0}}>
+          <span style={{fontWeight:600,color:"#c62828"}}>⏱ TAKT:</span>
+          <input
+            value={taktRaw}
+            onChange={e=>setTaktRaw(e.target.value)}
+            placeholder="secs or MM:SS"
+            title="Enter TAKT time as seconds (e.g. 90) or MM:SS (e.g. 1:30)"
+            style={{width:100,padding:"3px 7px",border:`2px solid ${taktMin?"#c62828":"#ccc"}`,
+                    borderRadius:5,fontSize:12,color:"#c62828",fontWeight:taktMin?700:400}}
+          />
+          {taktMin && (
+            <span style={{fontSize:11,color:"#c62828",fontWeight:600}}>{fmtTime(taktMin)}</span>
+          )}
+          {taktMin && (
+            <button onClick={()=>setTaktRaw("")}
+              style={{background:"none",border:"none",color:"#aaa",cursor:"pointer",fontSize:12,padding:"0 2px"}}>✕</button>
+          )}
+        </label>
       </div>
 
       {/* ── Header ── */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
           <h3 style={{margin:0,color:TEAL_DARK}}>
             Line Balance — {scopeLabel}
             {isSingleStation && <span style={{fontSize:12,fontWeight:400,color:"#888",marginLeft:8}}>(task breakdown)</span>}
           </h3>
           <span style={{fontSize:12,color:"#888"}}>
-            Average cycle time: {fmtTime(avg)}
-            {data.length > 0 && <span style={{marginLeft:8}}>· {data.length} {isSingleStation?"task(s)":"station(s)"}</span>}
+            Avg: {fmtTime(avg)}
+            {taktMin && <span style={{marginLeft:10,color:"#c62828",fontWeight:600}}>TAKT: {fmtTime(taktMin)}</span>}
+            {data.length > 0 && <span style={{marginLeft:10}}>{data.length} {isSingleStation?"task(s)":"station(s)"}</span>}
           </span>
         </div>
         <button onClick={()=>exportCSV(scopedStations)}
@@ -2324,44 +2360,81 @@ function LineBalance({ stations, lines }) {
 
       {data.length === 0 ? (
         <div style={{textAlign:"center",padding:40,color:"#bbb",background:"#f9f9f9",borderRadius:8}}>
-          <div style={{fontSize:13}}>No data for this selection.</div>
+          No data for this selection.
         </div>
       ) : (<>
         {/* ── Bar chart ── */}
-        <div style={{display:"flex",alignItems:"flex-end",gap:6,padding:"16px 8px 8px",background:"#f9fbe7",borderRadius:8,overflowX:"auto",marginBottom:16,minHeight:200}}>
+        <div style={{display:"flex",alignItems:"flex-end",gap:6,padding:"16px 8px 8px",
+                     background:"#f9fbe7",borderRadius:8,overflowX:"auto",marginBottom:16,minHeight:200,position:"relative"}}>
           {data.map(d=>{
-            const pct=(d.total/max)*100, tpct=(avg/max)*100, hot=d.total>avg*1.1;
-            const label = isSingleStation
+            const pct     = (d.total/max)*100;
+            const refPct  = (refLine/max)*100;
+            const avgPct  = (avg/max)*100;
+            const overTakt= taktMin && d.total > taktMin;
+            const overAvg = !taktMin && d.total > avg*1.1;
+            const hot     = overTakt || overAvg;
+            const label   = isSingleStation
               ? `Task ${d.sopId?.split("-").pop()||""}`
               : d.name;
             return (
-              <div key={d.id} style={{flex:"0 0 auto",width:isSingleStation?90:70,display:"flex",flexDirection:"column",alignItems:"center"}}>
+              <div key={d.id} style={{flex:"0 0 auto",width:isSingleStation?90:70,display:"flex",flexDirection:"column",alignItems:"center",position:"relative"}}>
                 <span style={{fontSize:10,fontWeight:700,color:hot?"#c62828":"#2e7d32",marginBottom:3}}>{fmtTime(d.total)}</span>
-                <div style={{width:isSingleStation?70:52,height:140,background:"#e8e8e8",borderRadius:"4px 4px 0 0",position:"relative",display:"flex",alignItems:"flex-end",overflow:"hidden"}}>
-                  <div style={{width:"100%",height:`${pct}%`,background:hot?"#e53935":TEAL,borderRadius:"4px 4px 0 0",transition:"height 0.4s"}}/>
-                  <div style={{position:"absolute",bottom:`${tpct}%`,left:0,right:0,height:2,background:"#ff6f00"}}/>
+                <div style={{width:isSingleStation?70:52,height:140,background:"#e8e8e8",
+                             borderRadius:"4px 4px 0 0",position:"relative",display:"flex",
+                             alignItems:"flex-end",overflow:"hidden"}}>
+                  <div style={{width:"100%",height:`${pct}%`,
+                               background:hot?"#e53935":TEAL,
+                               borderRadius:"4px 4px 0 0",transition:"height 0.4s"}}/>
+                  {/* Average line (orange) — only show when no TAKT */}
+                  {!taktMin && (
+                    <div style={{position:"absolute",bottom:`${avgPct}%`,left:0,right:0,height:2,background:"#ff6f00"}}/>
+                  )}
+                  {/* TAKT line (red) */}
+                  {taktMin && (
+                    <div style={{position:"absolute",bottom:`${refPct}%`,left:0,right:0,height:2,background:"#c62828"}}/>
+                  )}
+                  {/* When TAKT set, also show avg as dashed orange */}
+                  {taktMin && (
+                    <div style={{position:"absolute",bottom:`${avgPct}%`,left:0,right:0,height:1,background:"#ff6f00",opacity:0.5,borderTop:"1px dashed #ff6f00"}}/>
+                  )}
                 </div>
-                <span style={{fontSize:9,textAlign:"center",marginTop:3,color:"#555",maxWidth:isSingleStation?88:68,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}} title={d.name}>{label}</span>
+                <span style={{fontSize:9,textAlign:"center",marginTop:3,color:"#555",
+                              maxWidth:isSingleStation?88:68,overflow:"hidden",
+                              textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}
+                      title={d.name}>{label}</span>
               </div>
             );
           })}
         </div>
-        <div style={{fontSize:11,color:"#888",marginBottom:12}}>
-          <span style={{color:"#ff6f00",fontWeight:600}}>— Orange line</span> = average &nbsp;|&nbsp;
-          <span style={{color:"#e53935",fontWeight:600}}>■ Red</span> = &gt;10% over average
+
+        {/* Legend */}
+        <div style={{fontSize:11,color:"#888",marginBottom:12,display:"flex",gap:16,flexWrap:"wrap"}}>
+          {taktMin ? (<>
+            <span><span style={{color:"#c62828",fontWeight:700}}>— Red line</span> = TAKT time ({fmtTime(taktMin)})</span>
+            <span><span style={{color:"#ff6f00",fontWeight:700}}>- - Orange</span> = average ({fmtTime(avg)})</span>
+            <span><span style={{color:"#e53935",fontWeight:700}}>■ Red bar</span> = exceeds TAKT</span>
+          </>) : (<>
+            <span><span style={{color:"#ff6f00",fontWeight:700}}>— Orange line</span> = average ({fmtTime(avg)})</span>
+            <span><span style={{color:"#e53935",fontWeight:700}}>■ Red bar</span> = &gt;10% over average</span>
+          </>)}
         </div>
 
         {/* ── Table ── */}
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
           <thead>
             <tr style={{background:TEAL,color:"white"}}>
-              {[isSingleStation?"Task ID":"SOP ID", isSingleStation?"Task":"Station","Tasks/Steps","Steps","Cycle Time","vs Avg"]
+              {[isSingleStation?"Task ID":"SOP ID",
+                isSingleStation?"Task":"Station",
+                "Tasks","Steps","Cycle Time",
+                taktMin?"vs TAKT":"vs Avg"]
                 .map(h=><th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600}}>{h}</th>)}
             </tr>
           </thead>
           <tbody>
             {data.map((d,i)=>{
-              const diff=d.total-avg;
+              const ref  = taktMin || avg;
+              const diff = d.total - ref;
+              const over = taktMin ? d.total > taktMin : d.total > avg*1.1;
               return (
                 <tr key={d.id} style={{background:i%2===0?"#f5f5f5":"white",borderBottom:"1px solid #e0e0e0"}}>
                   <td style={{padding:"6px 10px",fontFamily:"monospace",color:TEAL_DARK,fontWeight:600}}>{d.sopId||"—"}</td>
@@ -2369,7 +2442,7 @@ function LineBalance({ stations, lines }) {
                   <td style={{padding:"6px 10px",textAlign:"center"}}>{d.tasks}</td>
                   <td style={{padding:"6px 10px",textAlign:"center"}}>{d.steps}</td>
                   <td style={{padding:"6px 10px",fontWeight:600}}>{fmtTime(d.total)}</td>
-                  <td style={{padding:"6px 10px",fontWeight:600,color:diff>0?"#c62828":diff<0?"#2e7d32":"#888"}}>
+                  <td style={{padding:"6px 10px",fontWeight:600,color:over?"#c62828":diff<0?"#2e7d32":"#888"}}>
                     {diff>0?"+":""}{fmtTime(Math.abs(diff))} {diff>0?"▲":diff<0?"▼":"—"}
                   </td>
                 </tr>
@@ -2380,7 +2453,9 @@ function LineBalance({ stations, lines }) {
             <tr style={{background:TEAL_LIGHT,fontWeight:700}}>
               <td colSpan={4} style={{padding:"7px 10px"}}>Total / Average</td>
               <td style={{padding:"7px 10px"}}>{fmtTime(data.reduce((s,d)=>s+d.total,0))}</td>
-              <td style={{padding:"7px 10px",color:"#555"}}>Avg: {fmtTime(avg)}</td>
+              <td style={{padding:"7px 10px",color:taktMin?"#c62828":"#555"}}>
+                {taktMin ? `TAKT: ${fmtTime(taktMin)}` : `Avg: ${fmtTime(avg)}`}
+              </td>
             </tr>
           </tfoot>
         </table>
