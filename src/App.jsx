@@ -95,7 +95,9 @@ const mkLine = () => ({
   name: "",
   description: "",
   stationIdentifier: "",
-  savedAt: new Date().toISOString(),  // last save timestamp for conflict detection
+  savedAt: new Date().toISOString(),
+  linkedFileName:  null,   // persisted filename for reconnect on reload
+  linkedCsvName:   null,   // persisted CSV filename for reconnect on reload
   stationIds: [],
 });
 
@@ -3406,6 +3408,72 @@ function MergeLineModal({ conflicts, nonConflicts, onResolve, onCancel }) {
   );
 }
 
+// ─── Reconnect Files Modal ────────────────────────────────────────────────────
+// Shown on load when lines have stored filenames but no active handles.
+function ReconnectModal({ queue, onReconnect, onDismiss }) {
+  const [idx, setIdx] = useState(0);
+  const line = queue[idx];
+  if(!line) return null;
+
+  const isLast = idx === queue.length - 1;
+
+  const skip = () => {
+    if(isLast) onDismiss();
+    else setIdx(i=>i+1);
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:"white",borderRadius:12,padding:28,maxWidth:460,width:"95%",boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}}>
+        <div style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:16}}>
+          <span style={{fontSize:30}}>🔗</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:15,color:TEAL_DARK}}>Reconnect Line File</div>
+            <div style={{fontSize:12,color:"#888",marginTop:2}}>
+              {idx+1} of {queue.length} line(s) need reconnecting
+            </div>
+          </div>
+        </div>
+
+        <div style={{background:TEAL_LIGHT,border:"1px solid #80cbc4",borderRadius:8,padding:"12px 14px",marginBottom:16}}>
+          <div style={{fontWeight:700,fontSize:13,color:TEAL_DARK,marginBottom:4}}>
+            🏗️ {line.name||"(unnamed line)"}
+          </div>
+          <div style={{fontSize:12,color:"#555",lineHeight:1.6}}>
+            This line was previously linked to:<br/>
+            <code style={{background:"#e0f2f1",padding:"1px 6px",borderRadius:3,fontSize:12}}>
+              {line.linkedFileName}
+            </code>
+            {line.linkedCsvName && (
+              <span> + <code style={{background:"#e0f2f1",padding:"1px 6px",borderRadius:3,fontSize:12}}>{line.linkedCsvName}</code></span>
+            )}
+          </div>
+        </div>
+
+        <div style={{fontSize:12,color:"#666",marginBottom:18,lineHeight:1.6}}>
+          Browser security requires you to re-select the file each session. Navigate to the same file to restore the link — saves will write back to it automatically.
+        </div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          <button onClick={()=>onReconnect(line, idx, isLast)}
+            style={{background:TEAL,color:"white",border:"none",borderRadius:7,padding:"11px 0",cursor:"pointer",fontSize:13,fontWeight:700}}>
+            📂 Browse for "{line.linkedFileName}"
+          </button>
+          {line.linkedCsvName && (
+            <div style={{fontSize:11,color:"#888",textAlign:"center"}}>
+              You'll also be asked to locate the CSV file
+            </div>
+          )}
+          <button onClick={skip}
+            style={{background:"#f5f5f5",color:"#555",border:"1px solid #ddd",borderRadius:7,padding:"10px 0",cursor:"pointer",fontSize:13}}>
+            {isLast ? "Done — skip remaining" : "Skip this line →"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Save Info Modal ──────────────────────────────────────────────────────────
 function SaveInfoModal({ onExport, onClose }) {
   return (
@@ -3480,6 +3548,7 @@ export default function App() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [csvPrompt,      setCsvPrompt]      = useState(null); // {baseName, onLink, onSkip}
   const [mergePrompt,    setMergePrompt]    = useState(null); // {conflicts, nonConflicts, incomingStations}
+  const [reconnectQueue, setReconnectQueue] = useState([]); // lines needing file reconnect
   const [fileConflict,   setFileConflict]   = useState(null); // {fileUpdatedAt, pendingSave}
   const openedAtRef = useRef(null); // timestamp when current file was opened/last-saved
 
@@ -3510,7 +3579,7 @@ export default function App() {
           else nonConflicts.push(il);
         });
 
-        setMergePrompt({conflicts, nonConflicts, incomingStations, incomingLines});
+        setMergePrompt({conflicts, nonConflicts, incomingStations, incomingLines, sourceHandle: handle, sourceFileName: file.name});
       });
     } catch(e){ if(e.name!=="AbortError") flash("Could not open file."); }
   };
@@ -3562,8 +3631,44 @@ export default function App() {
 
     setStations(newStations);
     setLines(newLines);
+
+    // Link the source file handle to imported lines automatically
+    if(mergePrompt.sourceHandle) {
+      const {sourceHandle, sourceFileName} = mergePrompt;
+
+      // Get write permission up front
+      sourceHandle.queryPermission({mode:"readwrite"}).then(perm => {
+        if(perm !== "granted") return sourceHandle.requestPermission({mode:"readwrite"});
+      }).catch(()=>{});
+
+      // Link to non-conflicting lines (newly added)
+      nonConflicts.forEach(il => {
+        // Find the newly created line — it was pushed with a new id
+        const created = newLines[newLines.length - nonConflicts.indexOf(il) - 1];
+        if(created) {
+          setLineHandles(p => ({...p, [created.id]: {handle: sourceHandle, name: sourceFileName}}));
+          setLines(prev => prev.map(l => l.id===created.id
+            ? {...l, linkedFileName: sourceFileName}
+            : l
+          ));
+        }
+      });
+
+      // Link to replaced conflicting lines
+      conflicts.forEach(({existing}) => {
+        const res = resolutions[existing.id] || "keep";
+        if(res === "replace") {
+          setLineHandles(p => ({...p, [existing.id]: {handle: sourceHandle, name: sourceFileName}}));
+          setLines(prev => prev.map(l => l.id===existing.id
+            ? {...l, linkedFileName: sourceFileName}
+            : l
+          ));
+        }
+      });
+    }
+
     setMergePrompt(null);
-    flash(`✓ Merged ${nonConflicts.length + conflicts.length} line(s) into workspace`);
+    flash(`✓ Merged ${nonConflicts.length + conflicts.length} line(s) — file linked to line(s) for future saves`);
   };
 
   // confirmDelete — stores type + ids, executes deletion with fresh state on confirm
@@ -3600,10 +3705,30 @@ export default function App() {
   const loadRef = useRef();
 
   // Helpers for setting per-scope handles
-  const setLineHandle   = (lineId, handle, name) => setLineHandles(p=>handle?{...p,[lineId]:{handle,name}}:Object.fromEntries(Object.entries(p).filter(([k])=>k!==lineId)));
+  const setLineHandle = (lineId, handle, name, csvName) => {
+    setLineHandles(p => handle
+      ? {...p, [lineId]: {handle, name}}
+      : Object.fromEntries(Object.entries(p).filter(([k])=>k!==lineId))
+    );
+    // Persist filename into the line object so it survives save/reload
+    setLines(prev => prev.map(l => l.id===lineId
+      ? {...l, linkedFileName: handle ? name : null, linkedCsvName: handle?._csvHandle?.name || csvName || null}
+      : l
+    ));
+  };
   const setStationHandle= (stationId, handle, name) => setStationHandles(p=>handle?{...p,[stationId]:{handle,name}}:Object.fromEntries(Object.entries(p).filter(([k])=>k!==stationId)));
 
   useEffect(()=>{ lsSave(stations, lines); },[stations, lines]);
+
+  // On first load: find lines that had linked files and prompt to reconnect
+  useEffect(()=>{
+    if(!window.showOpenFilePicker) return;
+    const needReconnect = lines.filter(l => l.linkedFileName && !lineHandles[l.id]);
+    if(needReconnect.length > 0) {
+      setReconnectQueue(needReconnect);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const flash=(msg)=>{ setSaveMsg(msg); setTimeout(()=>setSaveMsg(""),2500); };
 
   // Find which line a station belongs to (for lineName in PDF)
@@ -3886,6 +4011,43 @@ export default function App() {
           </div>
         </div>
       )}
+      {reconnectQueue.length>0&&<ReconnectModal
+        queue={reconnectQueue}
+        onDismiss={()=>setReconnectQueue([])}
+        onReconnect={async(line, idx, isLast)=>{
+          try {
+            // Open JSON
+            const [handle] = await window.showOpenFilePicker({
+              types:[{description:"SOP Builder Save File",accept:{"application/json":[".json"]}}],
+              multiple:false,
+            });
+            const perm = await handle.queryPermission({mode:"readwrite"});
+            if(perm!=="granted") await handle.requestPermission({mode:"readwrite"});
+
+            // Optionally open CSV
+            let csvHandle = null;
+            if(line.linkedCsvName) {
+              try {
+                const [ch] = await window.showOpenFilePicker({
+                  types:[{description:"CSV Backup",accept:{"text/csv":[".csv"]}}],
+                  multiple:false,
+                });
+                const cp = await ch.queryPermission({mode:"readwrite"});
+                if(cp!=="granted") await ch.requestPermission({mode:"readwrite"});
+                handle._csvHandle = ch;
+                csvHandle = ch;
+              } catch(e){ if(e.name!=="AbortError") console.warn("CSV reconnect skipped",e); }
+            }
+
+            setLineHandle(line.id, handle, handle.name, csvHandle?.name||null);
+            flash(`✓ Reconnected: ${handle.name}`);
+          } catch(e){
+            if(e.name!=="AbortError") flash("Could not reconnect file.");
+          }
+          if(isLast) setReconnectQueue([]);
+          else setReconnectQueue(q=>q.slice(1));
+        }}
+      />}
       {fileConflict&&<FileConflictModal
         fileName={activeFileName}
         openedAt={openedAtRef.current}
