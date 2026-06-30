@@ -2263,6 +2263,54 @@ function LineBalance({ stations, lines }) {
       ? (stations.find(s=>String(s.id)===validStationId)?.stationNo || "Station")
       : "All Stations";
 
+  const [aiAnalysis,   setAiAnalysis]   = useState("");
+  const [aiLoading,    setAiLoading]    = useState(false);
+
+  const runAiAnalysis = async () => {
+    setAiLoading(true);
+    setAiAnalysis("");
+    try {
+      const stationRows = data.map(d =>
+        `- ${d.name} (${d.sopId||""}): Cycle Time ${fmtTime(d.total)}${taktMin?`, vs TAKT ${fmtTime(d.total-taktMin)} ${d.total>taktMin?"OVER":"under"}`:", no TAKT set"}`
+      ).join("\n");
+
+      const prompt = `You are a lean manufacturing expert analyzing a production line balance.
+
+Line: ${scopeLabel}
+${taktMin ? `TAKT Time: ${fmtTime(taktMin)}` : "TAKT Time: not set"}
+Average Cycle Time: ${fmtTime(avg)}
+Number of Stations: ${data.length}
+
+Station Cycle Times:
+${stationRows}
+
+Please provide a concise analysis covering:
+1. Overall balance assessment — is the line well balanced?
+2. Bottlenecks — which stations exceed TAKT or are significantly over average?
+3. Underloaded stations — which stations have significant remaining capacity?
+4. Specific rebalancing recommendations — what tasks could be moved between stations?
+5. Overall efficiency rating
+
+Keep the response practical and actionable. Use bullet points. Be concise.`;
+
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          model:"claude-sonnet-4-6",
+          max_tokens:1000,
+          messages:[{role:"user",content:prompt}]
+        })
+      });
+      const json = await response.json();
+      const text = json.content?.find(b=>b.type==="text")?.text || "No analysis returned.";
+      setAiAnalysis(text);
+    } catch(e) {
+      setAiAnalysis("Analysis failed — please try again.");
+    }
+    setAiLoading(false);
+  };
+
   if(!stations.length) return (
     <div style={{textAlign:"center",padding:80,color:"#bbb"}}>
       <div style={{fontSize:48}}>📊</div>
@@ -2272,25 +2320,27 @@ function LineBalance({ stations, lines }) {
 
   return (
     <div>
-      {/* ── Scope + TAKT bar ── */}
-      <div style={{background:"#f9f9f9",border:"1px solid #e0e0e0",borderRadius:8,padding:"12px 16px",
-                   marginBottom:16,display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
+      {/* ── Single scope + TAKT bar ── */}
+      <div style={{background:"#f9f9f9",border:"1px solid #e0e0e0",borderRadius:8,padding:"10px 16px",
+                   marginBottom:16,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
 
-        {/* Scope */}
         <span style={{fontWeight:600,fontSize:12,color:"#555",flexShrink:0}}>Analyse:</span>
 
-        <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12}}>
-          <input type="radio" name="lbscope" value="all" checked={scope==="all"} onChange={()=>setScope("all")} style={{accentColor:TEAL}}/>
+        {/* All */}
+        <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12,flexShrink:0}}>
+          <input type="radio" name="lbscope" checked={scope==="all"} onChange={()=>setScope("all")} style={{accentColor:TEAL}}/>
           All Stations
         </label>
 
+        {/* Line */}
         {lines.length > 0 && (
-          <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12}}>
-            <input type="radio" name="lbscope" value="line" checked={scope==="line"} onChange={()=>setScope("line")} style={{accentColor:TEAL}}/>
+          <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12}}>
+            <input type="radio" name="lbscope" checked={scope==="line"} onChange={()=>setScope("line")} style={{accentColor:TEAL}}/>
             Line:
             <select value={validLineId}
+              onClick={()=>setScope("line")}
               onChange={e=>{setSelLineId(e.target.value);setScope("line");}}
-              style={{padding:"2px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12,background:"white"}}>
+              style={{padding:"2px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12,background:"white",maxWidth:180}}>
               {lines.map(l=>{
                 const cnt=l.stationIds.filter(id=>stations.find(s=>s.id===id)).length;
                 return <option key={l.id} value={l.id}>{l.name||"(unnamed)"} ({cnt})</option>;
@@ -2299,15 +2349,22 @@ function LineBalance({ stations, lines }) {
           </label>
         )}
 
+        {/* Station — use controlled value with explicit string coercion */}
         {stations.length > 0 && (
-          <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",fontSize:12}}>
-            <input type="radio" name="lbscope" value="station" checked={scope==="station"} onChange={()=>setScope("station")} style={{accentColor:TEAL}}/>
+          <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12}}>
+            <input type="radio" name="lbscope" checked={scope==="station"} onChange={()=>setScope("station")} style={{accentColor:TEAL}}/>
             Station:
-            <select value={validStationId}
-              onChange={e=>{setSelStationId(e.target.value);setScope("station");}}
-              style={{padding:"2px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12,background:"white"}}>
+            <select
+              value={validStationId}
+              onClick={()=>setScope("station")}
+              onChange={e=>{
+                const val = e.target.value;
+                setSelStationId(val);
+                setScope("station");
+              }}
+              style={{padding:"2px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12,background:"white",maxWidth:200}}>
               {stations.map(s=>(
-                <option key={s.id} value={String(s.id)}>
+                <option key={String(s.id)} value={String(s.id)}>
                   {s.stationNo||s.sopId||"Station"}{s.stationDesc?" — "+s.stationDesc:""}
                 </option>
               ))}
@@ -2316,27 +2373,36 @@ function LineBalance({ stations, lines }) {
         )}
 
         {/* Divider */}
-        <div style={{width:1,height:24,background:"#ddd",flexShrink:0}}/>
+        <div style={{width:1,height:22,background:"#ddd",flexShrink:0,margin:"0 4px"}}/>
 
-        {/* TAKT input */}
-        <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,flexShrink:0}}>
-          <span style={{fontWeight:600,color:"#c62828"}}>⏱ TAKT:</span>
+        {/* TAKT — inline */}
+        <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,flexShrink:0}}>
+          <span style={{fontWeight:700,color:"#c62828",fontSize:12}}>⏱ TAKT:</span>
           <input
             value={taktRaw}
             onChange={e=>setTaktRaw(e.target.value)}
             placeholder="secs or MM:SS"
             title="Enter TAKT time as seconds (e.g. 90) or MM:SS (e.g. 1:30)"
-            style={{width:100,padding:"3px 7px",border:`2px solid ${taktMin?"#c62828":"#ccc"}`,
-                    borderRadius:5,fontSize:12,color:"#c62828",fontWeight:taktMin?700:400}}
+            style={{width:90,padding:"3px 7px",border:`2px solid ${taktMin?"#c62828":"#ccc"}`,
+                    borderRadius:5,fontSize:12,color:taktMin?"#c62828":"#444",fontWeight:taktMin?700:400}}
           />
-          {taktMin && (
-            <span style={{fontSize:11,color:"#c62828",fontWeight:600}}>{fmtTime(taktMin)}</span>
-          )}
-          {taktMin && (
+          {taktMin && <>
+            <span style={{fontSize:11,color:"#c62828",fontWeight:700}}>{fmtTime(taktMin)}</span>
             <button onClick={()=>setTaktRaw("")}
-              style={{background:"none",border:"none",color:"#aaa",cursor:"pointer",fontSize:12,padding:"0 2px"}}>✕</button>
-          )}
-        </label>
+              style={{background:"none",border:"none",color:"#bbb",cursor:"pointer",fontSize:12,padding:"0 2px",lineHeight:1}}>✕</button>
+          </>}
+        </div>
+
+        {/* AI Analysis button — pushed to right */}
+        <div style={{marginLeft:"auto",flexShrink:0}}>
+          <button onClick={runAiAnalysis} disabled={aiLoading}
+            style={{background:"linear-gradient(135deg,#5c35c9,#8b5cf6)",color:"white",border:"none",
+                    borderRadius:7,padding:"7px 14px",cursor:aiLoading?"not-allowed":"pointer",
+                    fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:6,
+                    opacity:aiLoading?0.7:1,boxShadow:"0 2px 6px rgba(92,53,201,0.3)"}}>
+            {aiLoading ? <>⏳ Analysing…</> : <>✨ AI Analysis</>}
+          </button>
+        </div>
       </div>
 
       {/* ── Header ── */}
@@ -2460,6 +2526,26 @@ function LineBalance({ stations, lines }) {
           </tfoot>
         </table>
       </>)}
+
+      {/* ── AI Analysis output ── */}
+      {(aiLoading || aiAnalysis) && (
+        <div style={{marginTop:20,border:"2px solid #8b5cf6",borderRadius:10,overflow:"hidden"}}>
+          <div style={{background:"linear-gradient(135deg,#5c35c9,#8b5cf6)",color:"white",
+                       padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontWeight:700,fontSize:13}}>✨ AI Line Balance Analysis</span>
+            {aiAnalysis && (
+              <button onClick={()=>setAiAnalysis("")}
+                style={{background:"rgba(255,255,255,0.2)",border:"none",color:"white",borderRadius:4,
+                        padding:"2px 8px",cursor:"pointer",fontSize:12}}>✕ Close</button>
+            )}
+          </div>
+          <div style={{padding:"16px 20px",background:"#faf9ff",fontSize:13,color:"#333",lineHeight:1.8,whiteSpace:"pre-wrap"}}>
+            {aiLoading
+              ? <span style={{color:"#8b5cf6",fontStyle:"italic"}}>Analysing your line balance data…</span>
+              : aiAnalysis}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
