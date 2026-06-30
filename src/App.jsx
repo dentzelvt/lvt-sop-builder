@@ -3408,6 +3408,89 @@ function MergeLineModal({ conflicts, nonConflicts, onResolve, onCancel }) {
   );
 }
 
+// ─── Link Files Modal ─────────────────────────────────────────────────────────
+// Shown after a line is imported. One modal, two paths:
+//   A) Use existing files — open file pickers for the same JSON + CSV
+//   B) Create new files  — Save As dialogs to name/place new files
+// The actual file pickers are separate OS dialogs but triggered back-to-back.
+function LinkFilesModal({ lineIds, sourceFileName, onLink, onSkip }) {
+  const [status, setStatus] = useState(""); // feedback during picker sequence
+  const baseName = (sourceFileName||"").replace(/\.json$/i,"");
+  const lineWord = lineIds.length === 1 ? "line" : `${lineIds.length} lines`;
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:4000,
+                 display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:"white",borderRadius:12,padding:28,maxWidth:480,width:"95%",
+                   boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}}>
+
+        {/* Header */}
+        <div style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:16}}>
+          <span style={{fontSize:32}}>🔗</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:15,color:TEAL_DARK}}>Link Save Files</div>
+            <div style={{fontSize:12,color:"#888",marginTop:2}}>
+              {lineIds.length === 1 ? "1 line was added to your workspace" : `${lineIds.length} lines were added to your workspace`}
+            </div>
+          </div>
+        </div>
+
+        <div style={{background:"#f9f9f9",borderRadius:8,padding:"10px 14px",marginBottom:18,fontSize:12,color:"#555",lineHeight:1.7}}>
+          Link this {lineWord} to save files so 💾 Save writes directly back to them.<br/>
+          Two file dialogs will open in sequence — JSON first, then CSV.
+        </div>
+
+        {status && (
+          <div style={{background:TEAL_LIGHT,border:`1px solid ${TEAL}`,borderRadius:6,
+                       padding:"8px 12px",marginBottom:14,fontSize:12,color:TEAL_DARK,fontWeight:600}}>
+            {status}
+          </div>
+        )}
+
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {/* Option A — use existing files */}
+          <div style={{border:`2px solid ${TEAL}`,borderRadius:8,padding:"14px 16px"}}>
+            <div style={{fontWeight:700,fontSize:13,color:TEAL_DARK,marginBottom:4}}>
+              📂 Use existing files
+            </div>
+            <div style={{fontSize:12,color:"#666",marginBottom:10,lineHeight:1.6}}>
+              Already have <code style={{background:"#e0f2f1",padding:"1px 5px",borderRadius:3}}>{sourceFileName}</code> and its CSV?
+              Navigate to them to link and authorize writes.
+            </div>
+            <button onClick={()=>onLink("existing", setStatus)}
+              style={{width:"100%",background:TEAL,color:"white",border:"none",borderRadius:7,
+                      padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:700}}>
+              📂 Browse for {sourceFileName} + CSV
+            </button>
+          </div>
+
+          {/* Option B — create new files */}
+          <div style={{border:"1px solid #e0e0e0",borderRadius:8,padding:"14px 16px",background:"#fafafa"}}>
+            <div style={{fontWeight:700,fontSize:13,color:"#444",marginBottom:4}}>
+              💾 Create new files
+            </div>
+            <div style={{fontSize:12,color:"#777",marginBottom:10,lineHeight:1.6}}>
+              Save this {lineWord} to a new location. Choose a folder and filename for the JSON, then the CSV.
+            </div>
+            <button onClick={()=>onLink("new", setStatus)}
+              style={{width:"100%",background:"#f5f5f5",color:"#444",border:"1px solid #ddd",borderRadius:7,
+                      padding:"10px 0",cursor:"pointer",fontSize:13,fontWeight:600}}>
+              💾 Choose where to save…
+            </button>
+          </div>
+
+          {/* Skip */}
+          <button onClick={onSkip}
+            style={{background:"none",color:"#aaa",border:"none",cursor:"pointer",
+                    fontSize:12,padding:"6px 0",textDecoration:"underline"}}>
+            Skip — I'll link files later
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Reconnect Files Modal ────────────────────────────────────────────────────
 // Shown on load when lines have stored filenames but no active handles.
 function ReconnectModal({ queue, onReconnect, onDismiss }) {
@@ -3548,7 +3631,8 @@ export default function App() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [csvPrompt,      setCsvPrompt]      = useState(null); // {baseName, onLink, onSkip}
   const [mergePrompt,    setMergePrompt]    = useState(null); // {conflicts, nonConflicts, incomingStations}
-  const [reconnectQueue, setReconnectQueue] = useState([]); // lines needing file reconnect
+  const [reconnectQueue,   setReconnectQueue]   = useState([]); // lines needing file reconnect
+  const [linkFilesPrompt,  setLinkFilesPrompt]  = useState(null); // {lineIds, sourceHandle, sourceFileName} after merge
   const [fileConflict,   setFileConflict]   = useState(null); // {fileUpdatedAt, pendingSave}
   const openedAtRef = useRef(null); // timestamp when current file was opened/last-saved
 
@@ -3561,22 +3645,6 @@ export default function App() {
         multiple:false
       });
       const file = await handle.getFile();
-      const baseName = file.name.replace(/\.json$/i, "");
-
-      // Prompt for companion CSV immediately — same session, user gesture intact
-      try {
-        const [csvHandle] = await window.showOpenFilePicker({
-          types:[{description:"CSV Backup",accept:{"text/csv":[".csv"]}}],
-          multiple:false,
-        });
-        const csvPerm = await csvHandle.queryPermission({mode:"readwrite"});
-        if(csvPerm!=="granted") await csvHandle.requestPermission({mode:"readwrite"});
-        handle._csvHandle = csvHandle;
-      } catch(e){
-        if(e.name!=="AbortError") console.warn("CSV not linked:", e);
-        // User skipped — CSV will be prompted on first save
-      }
-
       loadFile(file, loaded => {
         const incomingLines    = loaded.lines||[];
         const incomingStations = loaded.stations||[];
@@ -3680,7 +3748,29 @@ export default function App() {
     }
 
     setMergePrompt(null);
-    flash(`✓ Merged ${nonConflicts.length + conflicts.length} line(s) — file linked to line(s) for future saves`);
+
+    // Collect IDs of lines that were imported (new or replaced)
+    const importedLineIds = [];
+    nonConflicts.forEach((il, i) => {
+      const created = newLines[newLines.length - nonConflicts.length + i];
+      if(created) importedLineIds.push(created.id);
+    });
+    conflicts.forEach(({existing}) => {
+      const res = resolutions[existing.id] || "keep";
+      if(res === "replace" || res === "both") importedLineIds.push(existing.id);
+    });
+
+    if(importedLineIds.length > 0 && mergePrompt.sourceHandle) {
+      // Show the LinkFiles modal so user can choose to link or create new files
+      setLinkFilesPrompt({
+        lineIds: importedLineIds,
+        sourceHandle: mergePrompt.sourceHandle,
+        sourceFileName: mergePrompt.sourceFileName,
+        newLines,
+      });
+    } else {
+      flash(`✓ Merged ${nonConflicts.length + conflicts.length} line(s) into workspace`);
+    }
   };
 
   // confirmDelete — stores type + ids, executes deletion with fresh state on confirm
@@ -4023,6 +4113,81 @@ export default function App() {
           </div>
         </div>
       )}
+      {linkFilesPrompt&&<LinkFilesModal
+        lineIds={linkFilesPrompt.lineIds}
+        sourceFileName={linkFilesPrompt.sourceFileName}
+        onSkip={()=>{
+          setLinkFilesPrompt(null);
+          flash(`✓ Merged — no files linked. Use 💾 Save to link files later.`);
+        }}
+        onLink={async(mode, setStatus)=>{
+          const {lineIds, sourceHandle, sourceFileName, newLines: mergedLines} = linkFilesPrompt;
+          const baseName = sourceFileName.replace(/\.json$/i,"");
+          let jsonHandle = null;
+          let csvHandle  = null;
+
+          try {
+            if(mode === "existing") {
+              // Open the existing JSON
+              setStatus("📂 Opening JSON file…");
+              const [jh] = await window.showOpenFilePicker({
+                types:[{description:"SOP Builder Save File",accept:{"application/json":[".json"]}}],
+                multiple:false,
+              });
+              const jp = await jh.queryPermission({mode:"readwrite"});
+              if(jp!=="granted") await jh.requestPermission({mode:"readwrite"});
+              jsonHandle = jh;
+
+              // Open the existing CSV
+              setStatus("📊 Opening CSV file…");
+              try {
+                const [ch] = await window.showOpenFilePicker({
+                  types:[{description:"CSV Backup",accept:{"text/csv":[".csv"]}}],
+                  multiple:false,
+                });
+                const cp = await ch.queryPermission({mode:"readwrite"});
+                if(cp!=="granted") await ch.requestPermission({mode:"readwrite"});
+                csvHandle = ch;
+              } catch(e){ if(e.name!=="AbortError") console.warn("CSV skipped"); }
+
+            } else {
+              // Save As — new JSON
+              setStatus("💾 Choosing location for JSON…");
+              const date = new Date().toISOString().slice(0,10);
+              jsonHandle = await window.showSaveFilePicker({
+                suggestedName: `${baseName}_${date}.json`,
+                types:[{description:"SOP Builder Save File",accept:{"application/json":[".json"]}}],
+              });
+
+              // Save As — new CSV
+              setStatus("💾 Choosing location for CSV…");
+              try {
+                csvHandle = await window.showSaveFilePicker({
+                  suggestedName: `${baseName}_${date}.csv`,
+                  types:[{description:"CSV Backup",accept:{"text/csv":[".csv"]}}],
+                });
+              } catch(e){ if(e.name!=="AbortError") console.warn("CSV skipped"); }
+            }
+
+            // Attach CSV to JSON handle
+            if(jsonHandle && csvHandle) jsonHandle._csvHandle = csvHandle;
+
+            // Link to all imported lines
+            if(jsonHandle) {
+              lineIds.forEach(lineId => {
+                setLineHandle(lineId, jsonHandle, jsonHandle.name, csvHandle?.name||null);
+              });
+            }
+
+            setLinkFilesPrompt(null);
+            flash(`✓ Files linked — 💾 Save will write directly to ${jsonHandle?.name||"file"}${csvHandle?" + "+csvHandle.name:""}`);
+
+          } catch(e){
+            if(e.name==="AbortError") setStatus(""); // user cancelled a picker — stay in modal
+            else { setLinkFilesPrompt(null); flash("Could not link files."); }
+          }
+        }}
+      />}
       {reconnectQueue.length>0&&<ReconnectModal
         queue={reconnectQueue}
         onDismiss={()=>setReconnectQueue([])}
