@@ -408,9 +408,20 @@ const buildPrintHTML = (station, screen=false) => {
       <span class="f-right">SOP ID: ${safe(station.sopId)} &nbsp;|&nbsp; Effective Date: ${today}</span>
     </div>` : "";
 
-  const drawRows = station.drawings.filter(d=>d.drawingNo||d.description)
-    .map(d=>`<tr><td>${safe(d.drawingNo)}</td><td>${safe(d.description)}</td><td></td><td></td></tr>`)
-    .join("") || `<tr><td colspan="4">&nbsp;</td></tr>`;
+  const validDrawings = station.drawings.filter(d=>d.drawingNo||d.description);
+  const drawRows = (() => {
+    if(validDrawings.length === 0) return `<tr><td colspan="4">&nbsp;</td></tr>`;
+    const rows = [];
+    for(let i=0; i<validDrawings.length; i+=2){
+      const left  = validDrawings[i];
+      const right = validDrawings[i+1];
+      rows.push(`<tr>
+        <td>${safe(left.drawingNo)}</td><td>${safe(left.description)}</td>
+        <td>${right?safe(right.drawingNo):""}</td><td>${right?safe(right.description):""}</td>
+      </tr>`);
+    }
+    return rows.join("");
+  })();
   const stImgs = (station.stationImages||[]).map(src=>`<img src="${src}" class="thumb"/>`).join("");
 
   const cover = `
