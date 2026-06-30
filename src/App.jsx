@@ -2264,51 +2264,46 @@ function LineBalance({ stations, lines }) {
       : "All Stations";
 
   const [aiAnalysis,   setAiAnalysis]   = useState("");
-  const [aiLoading,    setAiLoading]    = useState(false);
 
-  const runAiAnalysis = async () => {
-    setAiLoading(true);
-    setAiAnalysis("");
-    try {
-      const stationRows = data.map(d =>
-        `- ${d.name} (${d.sopId||""}): Cycle Time ${fmtTime(d.total)}${taktMin?`, vs TAKT ${fmtTime(d.total-taktMin)} ${d.total>taktMin?"OVER":"under"}`:", no TAKT set"}`
-      ).join("\n");
+  const openInClaude = () => {
+    const stationRows = data.map(d => {
+      const vsRef = taktMin
+        ? `${d.total > taktMin ? "+" : ""}${fmtTime(d.total - taktMin)} vs TAKT`
+        : `${d.total > avg ? "+" : ""}${fmtTime(d.total - avg)} vs avg`;
+      return `| ${d.sopId||d.name} | ${d.name} | ${fmtTime(d.total)} | ${vsRef} | ${d.tasks} tasks / ${d.steps} steps |`;
+    }).join("\n");
 
-      const prompt = `You are a lean manufacturing expert analyzing a production line balance.
+    const prompt = `You are a lean manufacturing engineer at Live View Technologies analyzing a production line balance for trailer assembly.
 
-Line: ${scopeLabel}
-${taktMin ? `TAKT Time: ${fmtTime(taktMin)}` : "TAKT Time: not set"}
-Average Cycle Time: ${fmtTime(avg)}
-Number of Stations: ${data.length}
+## Line Balance Data
 
-Station Cycle Times:
+**Line:** ${scopeLabel}
+**TAKT Time:** ${taktMin ? fmtTime(taktMin) : "not set"}
+**Average Cycle Time:** ${fmtTime(avg)}
+**Number of ${isSingleStation?"Tasks":"Stations"}:** ${data.length}
+**Total Cycle Time:** ${fmtTime(data.reduce((s,d)=>s+d.total,0))}
+
+| SOP ID | ${isSingleStation?"Task":"Station"} | Cycle Time | vs ${taktMin?"TAKT":"Avg"} | Content |
+|--------|---------|------------|---------|---------|
 ${stationRows}
 
-Please provide a concise analysis covering:
-1. Overall balance assessment — is the line well balanced?
-2. Bottlenecks — which stations exceed TAKT or are significantly over average?
-3. Underloaded stations — which stations have significant remaining capacity?
-4. Specific rebalancing recommendations — what tasks could be moved between stations?
-5. Overall efficiency rating
+## Please Analyze:
 
-Keep the response practical and actionable. Use bullet points. Be concise.`;
+1. **Balance Assessment** — How well balanced is this line? What is the line efficiency (total CT / stations / TAKT)?
+2. **Bottlenecks** — Which ${isSingleStation?"tasks":"stations"} exceed TAKT or are significantly overloaded?
+3. **Underloaded** — Which ${isSingleStation?"tasks":"stations"} have significant spare capacity that could absorb work?
+4. **Rebalancing Recommendations** — Specific suggestions for redistributing work between ${isSingleStation?"tasks":"stations"} to bring all cycle times closer to TAKT.
+5. **Priority Actions** — What are the top 3 things to address first?
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          model:"claude-sonnet-4-6",
-          max_tokens:1000,
-          messages:[{role:"user",content:prompt}]
-        })
-      });
-      const json = await response.json();
-      const text = json.content?.find(b=>b.type==="text")?.text || "No analysis returned.";
-      setAiAnalysis(text);
-    } catch(e) {
-      setAiAnalysis("Analysis failed — please try again.");
-    }
-    setAiLoading(false);
+Be specific and practical. Reference the actual station/task names from the data above.`;
+
+    // Copy to clipboard and open Claude
+    navigator.clipboard.writeText(prompt).then(() => {
+      setAiAnalysis("✓ Analysis prompt copied to clipboard! Opening Claude in a new tab — paste the prompt to begin analysis.");
+    }).catch(() => {
+      setAiAnalysis("Opening Claude in a new tab. Copy the prompt below and paste it into Claude:\n\n" + prompt);
+    });
+    window.open("https://claude.ai/new", "_blank", "noopener");
   };
 
   if(!stations.length) return (
@@ -2320,9 +2315,9 @@ Keep the response practical and actionable. Use bullet points. Be concise.`;
 
   return (
     <div>
-      {/* ── Single scope + TAKT bar ── */}
+      {/* ── Single scope + TAKT + AI bar ── */}
       <div style={{background:"#f9f9f9",border:"1px solid #e0e0e0",borderRadius:8,padding:"10px 16px",
-                   marginBottom:16,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+                   marginBottom:16,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
 
         <span style={{fontWeight:600,fontSize:12,color:"#555",flexShrink:0}}>Analyse:</span>
 
@@ -2349,19 +2344,14 @@ Keep the response practical and actionable. Use bullet points. Be concise.`;
           </label>
         )}
 
-        {/* Station — use controlled value with explicit string coercion */}
+        {/* Station */}
         {stations.length > 0 && (
           <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12}}>
             <input type="radio" name="lbscope" checked={scope==="station"} onChange={()=>setScope("station")} style={{accentColor:TEAL}}/>
             Station:
-            <select
-              value={validStationId}
+            <select value={validStationId}
               onClick={()=>setScope("station")}
-              onChange={e=>{
-                const val = e.target.value;
-                setSelStationId(val);
-                setScope("station");
-              }}
+              onChange={e=>{ setSelStationId(e.target.value); setScope("station"); }}
               style={{padding:"2px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12,background:"white",maxWidth:200}}>
               {stations.map(s=>(
                 <option key={String(s.id)} value={String(s.id)}>
@@ -2373,36 +2363,40 @@ Keep the response practical and actionable. Use bullet points. Be concise.`;
         )}
 
         {/* Divider */}
-        <div style={{width:1,height:22,background:"#ddd",flexShrink:0,margin:"0 4px"}}/>
+        <div style={{width:1,height:22,background:"#ddd",flexShrink:0,margin:"0 2px"}}/>
 
-        {/* TAKT — inline */}
+        {/* TAKT — inline, no time echo */}
         <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,flexShrink:0}}>
           <span style={{fontWeight:700,color:"#c62828",fontSize:12}}>⏱ TAKT:</span>
           <input
             value={taktRaw}
             onChange={e=>setTaktRaw(e.target.value)}
-            placeholder="secs or MM:SS"
-            title="Enter TAKT time as seconds (e.g. 90) or MM:SS (e.g. 1:30)"
-            style={{width:90,padding:"3px 7px",border:`2px solid ${taktMin?"#c62828":"#ccc"}`,
-                    borderRadius:5,fontSize:12,color:taktMin?"#c62828":"#444",fontWeight:taktMin?700:400}}
+            placeholder="MM:SS or secs"
+            title="Enter TAKT time as MM:SS (e.g. 1:30) or plain seconds (e.g. 90)"
+            style={{width:90,padding:"3px 7px",
+                    border:`2px solid ${taktMin?"#c62828":"#ccc"}`,
+                    borderRadius:5,fontSize:12,
+                    color:taktMin?"#c62828":"#444",
+                    fontWeight:taktMin?700:400}}
           />
-          {taktMin && <>
-            <span style={{fontSize:11,color:"#c62828",fontWeight:700}}>{fmtTime(taktMin)}</span>
-            <button onClick={()=>setTaktRaw("")}
-              style={{background:"none",border:"none",color:"#bbb",cursor:"pointer",fontSize:12,padding:"0 2px",lineHeight:1}}>✕</button>
-          </>}
+          {taktMin && (
+            <button onClick={()=>setTaktRaw("")} title="Clear TAKT"
+              style={{background:"none",border:"none",color:"#bbb",cursor:"pointer",
+                      fontSize:13,padding:"0 2px",lineHeight:1}}>✕</button>
+          )}
         </div>
 
-        {/* AI Analysis button — pushed to right */}
-        <div style={{marginLeft:"auto",flexShrink:0}}>
-          <button onClick={runAiAnalysis} disabled={aiLoading}
-            style={{background:"linear-gradient(135deg,#5c35c9,#8b5cf6)",color:"white",border:"none",
-                    borderRadius:7,padding:"7px 14px",cursor:aiLoading?"not-allowed":"pointer",
-                    fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:6,
-                    opacity:aiLoading?0.7:1,boxShadow:"0 2px 6px rgba(92,53,201,0.3)"}}>
-            {aiLoading ? <>⏳ Analysing…</> : <>✨ AI Analysis</>}
-          </button>
-        </div>
+        {/* Divider */}
+        <div style={{width:1,height:22,background:"#ddd",flexShrink:0,margin:"0 2px"}}/>
+
+        {/* AI Analysis — inline, same row */}
+        <button onClick={openInClaude}
+          style={{background:"linear-gradient(135deg,#5c35c9,#8b5cf6)",color:"white",border:"none",
+                  borderRadius:7,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:700,
+                  display:"flex",alignItems:"center",gap:5,flexShrink:0,
+                  boxShadow:"0 2px 6px rgba(92,53,201,0.25)"}}>
+          ✨ AI Analysis
+        </button>
       </div>
 
       {/* ── Header ── */}
@@ -2527,22 +2521,18 @@ Keep the response practical and actionable. Use bullet points. Be concise.`;
         </table>
       </>)}
 
-      {/* ── AI Analysis output ── */}
-      {(aiLoading || aiAnalysis) && (
+      {/* ── AI prompt status ── */}
+      {aiAnalysis && (
         <div style={{marginTop:20,border:"2px solid #8b5cf6",borderRadius:10,overflow:"hidden"}}>
           <div style={{background:"linear-gradient(135deg,#5c35c9,#8b5cf6)",color:"white",
                        padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontWeight:700,fontSize:13}}>✨ AI Line Balance Analysis</span>
-            {aiAnalysis && (
-              <button onClick={()=>setAiAnalysis("")}
-                style={{background:"rgba(255,255,255,0.2)",border:"none",color:"white",borderRadius:4,
-                        padding:"2px 8px",cursor:"pointer",fontSize:12}}>✕ Close</button>
-            )}
+            <span style={{fontWeight:700,fontSize:13}}>✨ AI Analysis</span>
+            <button onClick={()=>setAiAnalysis("")}
+              style={{background:"rgba(255,255,255,0.2)",border:"none",color:"white",borderRadius:4,
+                      padding:"2px 8px",cursor:"pointer",fontSize:12}}>✕ Close</button>
           </div>
-          <div style={{padding:"16px 20px",background:"#faf9ff",fontSize:13,color:"#333",lineHeight:1.8,whiteSpace:"pre-wrap"}}>
-            {aiLoading
-              ? <span style={{color:"#8b5cf6",fontStyle:"italic"}}>Analysing your line balance data…</span>
-              : aiAnalysis}
+          <div style={{padding:"14px 18px",background:"#faf9ff",fontSize:13,color:"#444",lineHeight:1.7}}>
+            {aiAnalysis}
           </div>
         </div>
       )}
