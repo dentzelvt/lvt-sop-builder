@@ -3561,6 +3561,22 @@ export default function App() {
         multiple:false
       });
       const file = await handle.getFile();
+      const baseName = file.name.replace(/\.json$/i, "");
+
+      // Prompt for companion CSV immediately — same session, user gesture intact
+      try {
+        const [csvHandle] = await window.showOpenFilePicker({
+          types:[{description:"CSV Backup",accept:{"text/csv":[".csv"]}}],
+          multiple:false,
+        });
+        const csvPerm = await csvHandle.queryPermission({mode:"readwrite"});
+        if(csvPerm!=="granted") await csvHandle.requestPermission({mode:"readwrite"});
+        handle._csvHandle = csvHandle;
+      } catch(e){
+        if(e.name!=="AbortError") console.warn("CSV not linked:", e);
+        // User skipped — CSV will be prompted on first save
+      }
+
       loadFile(file, loaded => {
         const incomingLines    = loaded.lines||[];
         const incomingStations = loaded.stations||[];
@@ -3635,35 +3651,31 @@ export default function App() {
     // Link the source file handle to imported lines automatically
     if(mergePrompt.sourceHandle) {
       const {sourceHandle, sourceFileName} = mergePrompt;
+      const csvName = sourceHandle._csvHandle?.name || null;
 
       // Get write permission up front
       sourceHandle.queryPermission({mode:"readwrite"}).then(perm => {
         if(perm !== "granted") return sourceHandle.requestPermission({mode:"readwrite"});
       }).catch(()=>{});
 
+      const linkLine = (lineId) => {
+        setLineHandles(p => ({...p, [lineId]: {handle: sourceHandle, name: sourceFileName}}));
+        setLines(prev => prev.map(l => l.id===lineId
+          ? {...l, linkedFileName: sourceFileName, linkedCsvName: csvName}
+          : l
+        ));
+      };
+
       // Link to non-conflicting lines (newly added)
       nonConflicts.forEach(il => {
-        // Find the newly created line — it was pushed with a new id
         const created = newLines[newLines.length - nonConflicts.indexOf(il) - 1];
-        if(created) {
-          setLineHandles(p => ({...p, [created.id]: {handle: sourceHandle, name: sourceFileName}}));
-          setLines(prev => prev.map(l => l.id===created.id
-            ? {...l, linkedFileName: sourceFileName}
-            : l
-          ));
-        }
+        if(created) linkLine(created.id);
       });
 
       // Link to replaced conflicting lines
       conflicts.forEach(({existing}) => {
         const res = resolutions[existing.id] || "keep";
-        if(res === "replace") {
-          setLineHandles(p => ({...p, [existing.id]: {handle: sourceHandle, name: sourceFileName}}));
-          setLines(prev => prev.map(l => l.id===existing.id
-            ? {...l, linkedFileName: sourceFileName}
-            : l
-          ));
-        }
+        if(res === "replace") linkLine(existing.id);
       });
     }
 
