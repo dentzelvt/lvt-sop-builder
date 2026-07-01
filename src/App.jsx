@@ -1767,6 +1767,7 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
   const [editIdx, setEditIdx]             = useState(null);
   const [editDesc, setEditDesc]           = useState("");
   const [editBy,   setEditBy]             = useState("");
+  const [editDate, setEditDate]           = useState("");
   const [editConfirmed, setEditConfirmed] = useState(false);
 
   // Today as YYYY-MM-DD for the date input default
@@ -1838,12 +1839,19 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
     setEditIdx(i);
     setEditDesc(entries[i].description);
     setEditBy(entries[i].by||"");
+    // Convert locale date back to ISO for the date input
+    const raw = entries[i].date||"";
+    // Try to parse back to YYYY-MM-DD; if it fails leave blank
+    try {
+      const d = new Date(raw);
+      setEditDate(!isNaN(d) ? d.toISOString().slice(0,10) : "");
+    } catch { setEditDate(""); }
     setEditConfirmed(false);
     setShowEditModal(true);
   };
   const confirmEdit = () => {
     if(!editDesc.trim()){ alert("Description cannot be empty."); return; }
-    onEntryEdit(editIdx, editDesc.trim(), editBy.trim());
+    onEntryEdit(editIdx, editDesc.trim(), editBy.trim(), editDate);
     setShowEditModal(false);
   };
 
@@ -1866,7 +1874,7 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
             <th style={{padding:"5px 8px",textAlign:"left",width:90}}>Date</th>
             <th style={{padding:"5px 8px",textAlign:"left"}}>Description</th>
             <th style={{padding:"5px 8px",textAlign:"left",width:80}}>By</th>
-            <th style={{padding:"5px 8px",width:36}}></th>
+            <th style={{padding:"5px 8px",width:60}}></th>
           </tr>
         </thead>
         <tbody>
@@ -1879,10 +1887,21 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
               <td style={{padding:"5px 8px",color:"#666"}}>{e.date}</td>
               <td style={{padding:"5px 8px"}}>{e.description}</td>
               <td style={{padding:"5px 8px",color:"#666"}}>{e.by}</td>
-              <td style={{padding:"3px 6px",textAlign:"center"}}>
-                <button onClick={()=>startEdit(i)} title="Edit description"
-                  style={{background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:3,padding:"1px 6px",cursor:"pointer",fontSize:11}}>
+              <td style={{padding:"3px 6px",textAlign:"center",whiteSpace:"nowrap"}}>
+                <button onClick={()=>startEdit(i)} title="Edit this revision"
+                  style={{background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:3,
+                          padding:"1px 6px",cursor:"pointer",fontSize:11,marginRight:3}}>
                   ✏️
+                </button>
+                <button onClick={()=>{
+                  if(entries.length===1){ alert("Cannot delete the only revision entry."); return; }
+                  if(window.confirm(`Delete Rev ${e.rev} — ${e.description}?\nThis cannot be undone.`)){
+                    onEntryEdit(i, null, null, null, true); // pass delete flag
+                  }
+                }} title="Delete this revision"
+                  style={{background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:3,
+                          padding:"1px 6px",cursor:"pointer",fontSize:11,color:"#c62828"}}>
+                  ✕
                 </button>
               </td>
             </tr>
@@ -1975,17 +1994,18 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
       {/* ── Edit Entry Modal ────────────────────────────────────────────────── */}
       {showEditModal && editIdx!==null && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center"}}>
-          <div style={{background:"white",borderRadius:12,padding:28,maxWidth:460,width:"90%",boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}}>
+          <div style={{background:"white",borderRadius:12,padding:28,maxWidth:480,width:"90%",boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}}>
             <div style={{fontWeight:700,fontSize:16,color:TEAL_DARK,marginBottom:6}}>
-              Edit Rev {entries[editIdx]?.rev} Description
+              Edit Rev {entries[editIdx]?.rev}
             </div>
             <div style={{fontSize:12,color:"#666",marginBottom:12,lineHeight:1.6}}>
-              You are editing the description for an existing revision entry.
+              Edit the date, description, or author for this revision entry.
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+            {/* Date + Description + By */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
               <div>
-                <label style={{fontSize:12,fontWeight:600,color:"#333",display:"block",marginBottom:4}}>Description</label>
-                <input value={editDesc} onChange={e=>setEditDesc(e.target.value)} autoFocus
+                <label style={{fontSize:12,fontWeight:600,color:"#333",display:"block",marginBottom:4}}>Revision Date</label>
+                <input type="date" value={editDate} onChange={e=>setEditDate(e.target.value)}
                   style={{width:"100%",padding:"7px 9px",border:"1px solid #ccc",borderRadius:5,fontSize:13}}/>
               </div>
               <div>
@@ -1999,6 +2019,11 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
                   </button>
                 )}
               </div>
+            </div>
+            <div style={{marginBottom:12}}>
+              <label style={{fontSize:12,fontWeight:600,color:"#333",display:"block",marginBottom:4}}>Description</label>
+              <input value={editDesc} onChange={e=>setEditDesc(e.target.value)} autoFocus
+                style={{width:"100%",padding:"7px 9px",border:"1px solid #ccc",borderRadius:5,fontSize:13}}/>
             </div>
             {/* Windchill reminder checkbox */}
             <div style={{background:"#fff8e1",border:"1px solid #ffe082",borderRadius:6,padding:10,marginBottom:16}}>
@@ -2153,9 +2178,21 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
               upd.tasks=upd.tasks.map(t=>({...t,taskId:genTaskId(upd.sopId,t.taskNo)}));
               onUpdate(upd);
             }}
-            onEntryEdit={(idx, desc, by)=>{
+            onEntryEdit={(idx, desc, by, dateISO, isDelete)=>{
               const entries=[...(station.revisionEntries||[])];
-              entries[idx]={...entries[idx], description:desc, by:by!==undefined?by:entries[idx].by};
+              if(isDelete) {
+                entries.splice(idx, 1);
+              } else {
+                const localeDate = dateISO
+                  ? new Date(dateISO+"T00:00:00").toLocaleDateString()
+                  : entries[idx].date;
+                entries[idx]={
+                  ...entries[idx],
+                  description: desc !== null ? desc : entries[idx].description,
+                  by: by !== undefined && by !== null ? by : entries[idx].by,
+                  date: localeDate,
+                };
+              }
               const logText=entries.map(e=>`${e.rev} - ${e.description} (${e.date}${e.by?" | "+e.by:""})`).join("\n");
               onUpdate({...station, revisionEntries:entries, revisionLog:logText});
             }}
