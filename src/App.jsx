@@ -2212,21 +2212,21 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
 // ─── Line Balance ─────────────────────────────────────────────────────────────
 function LineBalance({ stations, lines }) {
   const [scope,        setScope]       = useState("all");
-  const [selLineId,    setSelLineId]   = useState(lines[0]?.id || "");
+  const [selLineId,    setSelLineId]   = useState(String(lines[0]?.id || ""));
   const [selStationId, setSelStationId]= useState(String(stations[0]?.id || ""));
   const [taktRaw,      setTaktRaw]     = useState(""); // user input — seconds or MM:SS
 
   // Parse TAKT time using same logic as cycle times
   const taktMin = taktRaw.trim() ? parseTime(taktRaw) : null;
 
-  // Ensure selLineId and selStationId stay valid when stations/lines change
-  const validLineId    = lines.find(l=>l.id===selLineId)    ? selLineId    : (lines[0]?.id||"");
-  const validStationId = stations.find(s=>String(s.id)===selStationId) ? selStationId : String(stations[0]?.id||"");
+  // Always compare as strings to avoid number/string type mismatch from select values
+  const validLineId    = lines.find(l=>String(l.id)===String(selLineId))    ? selLineId    : String(lines[0]?.id||"");
+  const validStationId = stations.find(s=>String(s.id)===String(selStationId)) ? selStationId : String(stations[0]?.id||"");
 
   // ── Determine which stations to analyse ──────────────────────────────────
   const scopedStations = (() => {
     if(scope === "line") {
-      const line = lines.find(l=>l.id===validLineId);
+      const line = lines.find(l=>String(l.id)===String(validLineId));
       if(!line) return [];
       return line.stationIds.map(id=>stations.find(s=>s.id===id)).filter(Boolean);
     }
@@ -2315,7 +2315,7 @@ Be specific and practical. Reference the actual station/task names from the data
 
   return (
     <div>
-      {/* ── Single scope + TAKT + AI bar ── */}
+      {/* ── Scope + TAKT bar ── */}
       <div style={{background:"#f9f9f9",border:"1px solid #e0e0e0",borderRadius:8,padding:"10px 16px",
                    marginBottom:16,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
 
@@ -2327,30 +2327,36 @@ Be specific and practical. Reference the actual station/task names from the data
           All Stations
         </label>
 
-        {/* Line */}
+        {/* Line — use string IDs throughout to avoid type mismatch */}
         {lines.length > 0 && (
-          <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12}}>
-            <input type="radio" name="lbscope" checked={scope==="line"} onChange={()=>setScope("line")} style={{accentColor:TEAL}}/>
-            Line:
-            <select value={validLineId}
-              onClick={()=>setScope("line")}
-              onChange={e=>{setSelLineId(e.target.value);setScope("line");}}
+          <div style={{display:"flex",alignItems:"center",gap:5,fontSize:12}}>
+            <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+              <input type="radio" name="lbscope" checked={scope==="line"} onChange={()=>setScope("line")} style={{accentColor:TEAL}}/>
+              Line:
+            </label>
+            <select
+              value={validLineId}
+              onChange={e=>{
+                setSelLineId(e.target.value);
+                setScope("line");
+              }}
               style={{padding:"2px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12,background:"white",maxWidth:180}}>
-              {lines.map(l=>{
-                const cnt=l.stationIds.filter(id=>stations.find(s=>s.id===id)).length;
-                return <option key={l.id} value={l.id}>{l.name||"(unnamed)"} ({cnt})</option>;
-              })}
+              {lines.map(l=>(
+                <option key={l.id} value={l.id}>{l.name||"(unnamed)"} ({l.stationIds.filter(id=>stations.find(s=>s.id===id)).length})</option>
+              ))}
             </select>
-          </label>
+          </div>
         )}
 
         {/* Station */}
         {stations.length > 0 && (
-          <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12}}>
-            <input type="radio" name="lbscope" checked={scope==="station"} onChange={()=>setScope("station")} style={{accentColor:TEAL}}/>
-            Station:
-            <select value={validStationId}
-              onClick={()=>setScope("station")}
+          <div style={{display:"flex",alignItems:"center",gap:5,fontSize:12}}>
+            <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+              <input type="radio" name="lbscope" checked={scope==="station"} onChange={()=>setScope("station")} style={{accentColor:TEAL}}/>
+              Station:
+            </label>
+            <select
+              value={validStationId}
               onChange={e=>{ setSelStationId(e.target.value); setScope("station"); }}
               style={{padding:"2px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12,background:"white",maxWidth:200}}>
               {stations.map(s=>(
@@ -2359,13 +2365,13 @@ Be specific and practical. Reference the actual station/task names from the data
                 </option>
               ))}
             </select>
-          </label>
+          </div>
         )}
 
         {/* Divider */}
         <div style={{width:1,height:22,background:"#ddd",flexShrink:0,margin:"0 2px"}}/>
 
-        {/* TAKT — inline, no time echo */}
+        {/* TAKT */}
         <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,flexShrink:0}}>
           <span style={{fontWeight:700,color:"#c62828",fontSize:12}}>⏱ TAKT:</span>
           <input
@@ -2385,18 +2391,6 @@ Be specific and practical. Reference the actual station/task names from the data
                       fontSize:13,padding:"0 2px",lineHeight:1}}>✕</button>
           )}
         </div>
-
-        {/* Divider */}
-        <div style={{width:1,height:22,background:"#ddd",flexShrink:0,margin:"0 2px"}}/>
-
-        {/* AI Analysis — inline, same row */}
-        <button onClick={openInClaude}
-          style={{background:"linear-gradient(135deg,#5c35c9,#8b5cf6)",color:"white",border:"none",
-                  borderRadius:7,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:700,
-                  display:"flex",alignItems:"center",gap:5,flexShrink:0,
-                  boxShadow:"0 2px 6px rgba(92,53,201,0.25)"}}>
-          ✨ AI Analysis
-        </button>
       </div>
 
       {/* ── Header ── */}
@@ -2412,10 +2406,19 @@ Be specific and practical. Reference the actual station/task names from the data
             {data.length > 0 && <span style={{marginLeft:10}}>{data.length} {isSingleStation?"task(s)":"station(s)"}</span>}
           </span>
         </div>
-        <button onClick={()=>exportCSV(scopedStations)}
-          style={{background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:6,padding:"6px 14px",cursor:"pointer",fontSize:12}}>
-          ⬇️ Export CSV
-        </button>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={openInClaude}
+            style={{background:"linear-gradient(135deg,#5c35c9,#8b5cf6)",color:"white",border:"none",
+                    borderRadius:6,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:700,
+                    display:"flex",alignItems:"center",gap:5,
+                    boxShadow:"0 2px 6px rgba(92,53,201,0.25)"}}>
+            ✨ AI Analysis
+          </button>
+          <button onClick={()=>exportCSV(scopedStations)}
+            style={{background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:6,padding:"6px 14px",cursor:"pointer",fontSize:12}}>
+            ⬇️ Export CSV
+          </button>
+        </div>
       </div>
 
       {data.length === 0 ? (
