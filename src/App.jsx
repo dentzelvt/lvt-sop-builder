@@ -1354,7 +1354,7 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
                         onUpdate={(updated, extra)=>updStation(updated, extra)}
                         onDelete={()=>confirmDelete("station", s.stationNo||s.sopId||"this station", {stationId:s.id})}
                         onPreview={()=>setPreview({...s,lineName:line.name})}
-                        allStations={stations}
+                        allStations={lineStations}
                         lineName={line.name}
                         stationIdentifier={line.stationIdentifier||""}
                         stationHandle={stationHandles[s.id]?.handle||null}
@@ -1610,7 +1610,6 @@ function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStat
     () => task.steps.length === 0 || task.steps.some(s => s.useStepNumber !== false)
   );
   const [collapsed, setCollapsed] = useState(true); // tasks start collapsed
-  const [showMoveTask, setShowMoveTask] = useState(false);
   const u=(f,v)=>onUpdate({...task,[f]:v});
 
   const updStep=(i,s)=>{ const a=[...task.steps]; a[i]=s; u("steps",a); };
@@ -1649,23 +1648,27 @@ function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStat
         </div>
         {/* Move task */}
         {moveTaskTargets.length>0 && (
-          <div style={{position:"relative",flexShrink:0}}>
-            <button onClick={e=>{e.stopPropagation();setShowMoveTask(!showMoveTask);}}
-              style={{padding:"3px 9px",fontSize:11,background:"#e3f2fd",border:"1px solid #90caf9",borderRadius:4,cursor:"pointer",color:"#1565c0"}}>
-              ↪ Move Task
-            </button>
-            {showMoveTask && (
-              <div style={{position:"absolute",right:0,top:"100%",zIndex:50,background:"white",border:"1px solid #ccc",borderRadius:6,boxShadow:"0 4px 16px rgba(0,0,0,0.15)",minWidth:220}}>
-                <div style={{padding:"6px 10px",fontSize:11,fontWeight:700,color:"#555",borderBottom:"1px solid #eee",background:"#f9f9f9"}}>Move task to station:</div>
-                {moveTaskTargets.map((s,i)=>(
-                  <button key={i} onClick={()=>{ onMoveTask(s.id); setShowMoveTask(false); }}
-                    style={{display:"block",width:"100%",textAlign:"left",padding:"7px 12px",fontSize:12,background:"none",border:"none",cursor:"pointer",borderBottom:"1px solid #f0f0f0"}}
-                    onMouseEnter={e=>e.target.style.background="#e8f5e9"} onMouseLeave={e=>e.target.style.background="none"}>
-                    {s.stationNo||"(untitled)"} — {s.sopId}
-                  </button>
-                ))}
-              </div>
-            )}
+          <div style={{position:"relative",flexShrink:0,display:"flex",alignItems:"center",gap:4}}>
+            <span style={{fontSize:11,color:"#1565c0",fontWeight:600}}>↪</span>
+            <select
+              defaultValue=""
+              onChange={e=>{
+                const targetId = e.target.value;
+                if(!targetId) return;
+                // Find target station — compare as strings
+                const target = moveTaskTargets.find(s=>String(s.id)===String(targetId));
+                if(target) { onMoveTask(target.id); e.target.value=""; }
+              }}
+              onClick={e=>e.stopPropagation()}
+              style={{padding:"3px 6px",fontSize:11,border:"1px solid #90caf9",borderRadius:4,
+                      background:"#e3f2fd",color:"#1565c0",cursor:"pointer",maxWidth:160}}>
+              <option value="">Move to…</option>
+              {moveTaskTargets.map(s=>(
+                <option key={String(s.id)} value={String(s.id)}>
+                  {s.stationNo||s.sopId||"Station"}{s.stationDesc?" — "+s.stationDesc:""}
+                </option>
+              ))}
+            </select>
           </div>
         )}
         <button onClick={e=>{e.stopPropagation();onDelete();}}
