@@ -2648,113 +2648,128 @@ function CsvRestoreTool({ currentLines, currentStations, onClose, onRestore }) {
 
   // ── Parse CSV text → structured data ─────────────────────────────────────
   const parseCSV = (text) => {
-    const allLines = text.split(/\r?\n/);
 
-    const parseRow = (line) => {
-      const cols = []; let cur = ""; let inQ = false;
-      for(let i=0;i<line.length;i++){
-        const c=line[i];
-        if(c==='"'){if(inQ&&line[i+1]==='"'){cur+='"';i++;}else inQ=!inQ;}
-        else if(c===','&&!inQ){cols.push(cur);cur="";}
-        else cur+=c;
+    // RFC 4180 compliant CSV row parser — handles multiline quoted fields
+    // Takes the full CSV string for a section and returns array of string arrays
+    const parseSection = (csvText) => {
+      const rows = [];
+      let row = [], cur = "", inQ = false;
+      for(let i = 0; i < csvText.length; i++) {
+        const c = csvText[i];
+        const next = csvText[i+1];
+        if(inQ) {
+          if(c === '"' && next === '"') { cur += '"'; i++; }         // escaped quote
+          else if(c === '"') { inQ = false; }                        // end quote
+          else { cur += c; }                                         // content (incl. newlines)
+        } else {
+          if(c === '"') { inQ = true; }                              // start quote
+          else if(c === ',') { row.push(cur.trim()); cur = ""; }     // field separator
+          else if(c === '\n' || (c === '\r' && next === '\n')) {     // row separator
+            if(c === '\r') i++;
+            row.push(cur.trim()); cur = "";
+            if(row.some(f=>f)) rows.push(row);                      // skip blank rows
+            row = [];
+          } else { cur += c; }
+        }
       }
-      cols.push(cur);
-      return cols.map(c=>c.trim());
+      row.push(cur.trim());
+      if(row.some(f=>f)) rows.push(row);
+      return rows;
     };
 
-    // Split into sections by ## markers
-    const sections={};
-    let cur=null,rows=[];
-    allLines.forEach(line=>{
-      if(line.startsWith("## ")){if(cur)sections[cur]=rows;cur=line.slice(3).trim();rows=[];}
-      else if(cur&&line.trim()) rows.push(line);
+    // Split into named sections by ## markers (safe — ## only appears at line-start)
+    const physicalLines = text.split(/\r?\n/);
+    const sectionTexts = {}; // sectionName → raw text block
+    let curName = null, curLines = [];
+    physicalLines.forEach(line => {
+      if(line.startsWith("## ")) {
+        if(curName) sectionTexts[curName] = curLines.join("\n");
+        curName = line.slice(3).trim();
+        curLines = [];
+      } else if(curName) {
+        curLines.push(line);
+      }
     });
-    if(cur) sections[cur]=rows;
-    const isLegacy = Object.keys(sections).length===0;
+    if(curName) sectionTexts[curName] = curLines.join("\n");
+    const isLegacy = Object.keys(sectionTexts).length === 0;
+
+    // Parse each section into rows
+    const sections = {};
+    Object.entries(sectionTexts).forEach(([name, raw]) => {
+      sections[name] = parseSection(raw);
+    });
+
+    // Helper: build field index from header row
+    const idx = (rows) => {
+      if(!rows.length) return {};
+      const h = rows[0].map(x => x.toLowerCase().replace(/[^a-z]/g,""));
+      const o = {}; h.forEach((k,i) => o[k]=i);
+      return { _h:h, get:(n)=>o[n]??-1 };
+    };
+    const fget = (r, I, name, def="") => { const i=I.get(name); return i>-1 ? r[i]||def : def; };
 
     // ── Station Metadata ────────────────────────────────────────────────────
     const stationMeta={};
-    if(sections["STATION METADATA"]){
-      const rs=sections["STATION METADATA"];
-      if(rs.length>0){
-        const h=parseRow(rs[0]).map(x=>x.toLowerCase().replace(/[^a-z]/g,""));
-        const fi=(n)=>h.indexOf(n);
-        const I={sopId:fi("sopid"),stNo:fi("stationno"),stDesc:fi("stationdesc"),
-          asmVer:fi("asmversion"),sopRev:fi("soprevision"),revBy:fi("revisedby"),
-          purpose:fi("purpose"),safety:fi("safetysummary"),notes:fi("generalnotes"),
-          tools:fi("toolsequipment"),drawings:fi("applicabledrawings")};
-        rs.slice(1).forEach(line=>{
-          const r=parseRow(line);
-          const stNo=I.stNo>-1?r[I.stNo]||"":"";if(!stNo)return;
-          stationMeta[stNo]={
-            sopId:I.sopId>-1?r[I.sopId]||"":"",
-            stDesc:I.stDesc>-1?r[I.stDesc]||"":"",
-            asmVer:I.asmVer>-1?r[I.asmVer]||"":"",
-            sopRev:I.sopRev>-1?r[I.sopRev]||"A":"A",
-            revisedBy:I.revBy>-1?r[I.revBy]||"":"",
-            purpose:I.purpose>-1?r[I.purpose]||"":"",
-            safety:I.safety>-1?r[I.safety]||"":"",
-            generalNotes:I.notes>-1?r[I.notes]||"":"",
-            toolsRaw:I.tools>-1?r[I.tools]||"":"",
-            drawingsRaw:I.drawings>-1?r[I.drawings]||"":"",
-          };
-        });
-      }
+    if(sections["STATION METADATA"]?.length>1){
+      const rows=sections["STATION METADATA"];
+      const I=idx(rows);
+      rows.slice(1).forEach(r=>{
+        const stNo=fget(r,I,"stationno");if(!stNo)return;
+        stationMeta[stNo]={
+          sopId:      fget(r,I,"sopid"),
+          stDesc:     fget(r,I,"stationdesc"),
+          asmVer:     fget(r,I,"asmversion"),
+          sopRev:     fget(r,I,"soprevision","A"),
+          revisedBy:  fget(r,I,"revisedby"),
+          purpose:    fget(r,I,"purpose"),
+          safety:     fget(r,I,"safetysummary"),
+          generalNotes:fget(r,I,"generalnotes"),
+          toolsRaw:   fget(r,I,"toolsequipment"),
+          drawingsRaw:fget(r,I,"applicabledrawings"),
+        };
+      });
     }
 
     // ── Revision Log ────────────────────────────────────────────────────────
     const revisionLog={};
-    if(sections["REVISION LOG"]){
-      const rs=sections["REVISION LOG"];
-      if(rs.length>0){
-        const h=parseRow(rs[0]).map(x=>x.toLowerCase().replace(/[^a-z]/g,""));
-        const I={stNo:h.indexOf("stationno"),rev:h.indexOf("rev"),date:h.indexOf("date"),
-          desc:h.indexOf("description"),by:h.indexOf("revisedby")};
-        rs.slice(1).forEach(line=>{
-          const r=parseRow(line);
-          const stNo=I.stNo>-1?r[I.stNo]||"":"";if(!stNo)return;
-          if(!revisionLog[stNo])revisionLog[stNo]=[];
-          revisionLog[stNo].push({
-            rev:I.rev>-1?r[I.rev]||"":"",
-            date:I.date>-1?r[I.date]||"":"",
-            description:I.desc>-1?r[I.desc]||"":"",
-            by:I.by>-1?r[I.by]||"":"",
-          });
+    if(sections["REVISION LOG"]?.length>1){
+      const rows=sections["REVISION LOG"];
+      const I=idx(rows);
+      rows.slice(1).forEach(r=>{
+        const stNo=fget(r,I,"stationno");if(!stNo)return;
+        if(!revisionLog[stNo])revisionLog[stNo]=[];
+        revisionLog[stNo].push({
+          rev:  fget(r,I,"rev"),
+          date: fget(r,I,"date"),
+          description:fget(r,I,"description"),
+          by:   fget(r,I,"revisedby"),
         });
-      }
+      });
     }
 
     // ── Tasks & Steps ───────────────────────────────────────────────────────
-    const taskRows=sections["TASKS AND STEPS"]||(isLegacy?allLines.filter(Boolean):[]);
+    const taskRows = sections["TASKS AND STEPS"] ||
+      (isLegacy ? parseSection(text.split(/\r?\n/).filter(Boolean).join("\n")) : []);
     if(taskRows.length<2) return {error:"No task/step data found in CSV."};
 
-    const h=parseRow(taskRows[0]).map(x=>x.toLowerCase().replace(/[^a-z]/g,""));
-    const fi=(n)=>h.indexOf(n);
-    const I={
-      sopId:fi("sopid"),stNo:fi("stationno"),stDesc:fi("stationdesc"),
-      taskNo:fi("taskno"),taskId:fi("taskid"),taskDesc:fi("taskdescription"),
-      taskNotes:fi("tasknotes"),stepNo:fi("stepno"),stepDesc:fi("stepdescription"),
-      keyPts:fi("keypoints"),
-      icon:fi("safetyicons")>-1?fi("safetyicons"):fi("safetyicon"),
-      ct:fi("cycletimemin"),
-    };
-    if(I.stNo===-1) return {error:"CSV does not match expected SOP Builder format."};
+    const I=idx(taskRows);
+    if(I.get("stationno")===-1) return {error:"CSV does not match expected SOP Builder format."};
 
     const stationMap=new Map();
-    taskRows.slice(1).forEach(line=>{
-      const r=parseRow(line);if(r.every(c=>!c))return;
-      const stNo=r[I.stNo]||"";if(!stNo)return;
-      const sopId=I.sopId>-1?r[I.sopId]||"":"";
-      const stDesc=I.stDesc>-1?r[I.stDesc]||"":"";
-      const taskNo=I.taskNo>-1?r[I.taskNo]||"":"";
-      const taskId=I.taskId>-1?r[I.taskId]||"":"";
-      const taskDesc=I.taskDesc>-1?r[I.taskDesc]||"":"";
-      const taskNotes=I.taskNotes>-1?r[I.taskNotes]||"":"";
-      const stepNo=I.stepNo>-1?r[I.stepNo]||"":"";
-      const stepDesc=I.stepDesc>-1?r[I.stepDesc]||"":"";
-      const keyPts=I.keyPts>-1?r[I.keyPts]||"":"";
-      const icon=I.icon>-1?r[I.icon]||"":"";
-      const ct=I.ct>-1?r[I.ct]||"":"";
+    taskRows.slice(1).forEach(r=>{
+      const stNo=fget(r,I,"stationno");if(!stNo)return;
+      const sopId=fget(r,I,"sopid");
+      const stDesc=fget(r,I,"stationdesc");
+      const taskNo=fget(r,I,"taskno");
+      const taskId=fget(r,I,"taskid");
+      const taskDesc=fget(r,I,"taskdescription");
+      const taskNotes=fget(r,I,"tasknotes");
+      const stepNo=fget(r,I,"stepno");
+      const stepDesc=fget(r,I,"stepdescription");
+      const keyPts=fget(r,I,"keypoints");
+      const iconKey=I.get("safetyicons")>-1?"safetyicons":"safetyicon";
+      const icon=fget(r,I,iconKey);
+      const ct=fget(r,I,"cycletimemin");
       if(!stationMap.has(stNo))stationMap.set(stNo,{sopId,stDesc,tasks:new Map()});
       const stData=stationMap.get(stNo);
       if(taskNo){
@@ -2814,6 +2829,7 @@ function CsvRestoreTool({ currentLines, currentStations, onClose, onRestore }) {
     });
     return {stations,guessedLineName};
   };
+
 
 
   const handleFile = (file) => {
