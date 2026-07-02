@@ -322,13 +322,63 @@ const loadFile = (file,cb) => {
 // ─── CSV Export ───────────────────────────────────────────────────────────────
 // Build CSV string from stations (no download — pure data)
 const buildCSV = (stations) => {
-  const rows=[["SOP ID","Station No","Station Desc","Task No","Task ID","Task Description","Step No","Step Description","Key Points","Safety Icon","Cycle Time (min)"]];
-  stations.forEach(s=>s.tasks.forEach(t=>{
-    if(!t.steps.length){ rows.push([s.sopId,s.stationNo,s.stationDesc||"",t.taskNo,t.taskId,t.description,"","","","",""]); return; }
-    t.steps.forEach((st,si)=>rows.push([s.sopId,s.stationNo,s.stationDesc||"",t.taskNo,t.taskId,t.description,
-      st.stepNumber||si+1,st.description,st.keyPoints,(st.icons||[st.icon]).filter(i=>i&&i!=="none").map(i=>ICONS[i]?.label||i).join("; "),toMinutes(st).toFixed(3)]));
-  }));
-  return rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\r\n");
+  const esc = (v) => `"${String(v||"").replace(/"/g,'""')}"`;
+  const row = (...cols) => cols.map(c=>esc(c)).join(",");
+
+  const sections = [];
+
+  // ── Section 1: Station Metadata ──────────────────────────────────────────
+  sections.push("## STATION METADATA");
+  sections.push(row("SOP ID","Station No","Station Desc","ASM Version","SOP Revision",
+                     "Revised By","Purpose","Safety Summary","General Notes","Tools & Equipment","Applicable Drawings"));
+  stations.forEach(s => {
+    const tools = (s.toolList||[]).map(t=>t.partNo?`${t.name} (${t.partNo})`:t.name).join("; ");
+    const drawings = (s.drawings||[]).filter(d=>d.drawingNo).map(d=>d.description?`${d.drawingNo} — ${d.description}`:d.drawingNo).join("; ");
+    sections.push(row(s.sopId, s.stationNo, s.stationDesc||"", s.asmVersion||"", s.sopRev||"A",
+                      s.revisedBy||"", s.purpose||"", s.safety||"", s.generalNotes||"", tools, drawings));
+  });
+
+  // ── Section 2: Revision Log ───────────────────────────────────────────────
+  sections.push("");
+  sections.push("## REVISION LOG");
+  sections.push(row("SOP ID","Station No","Rev","Date","Description","Revised By"));
+  stations.forEach(s => {
+    (s.revisionEntries||[]).forEach(e => {
+      sections.push(row(s.sopId, s.stationNo, e.rev||"", e.date||"", e.description||"", e.by||""));
+    });
+  });
+
+  // ── Section 3: Tasks & Steps ─────────────────────────────────────────────
+  sections.push("");
+  sections.push("## TASKS AND STEPS");
+  sections.push(row("SOP ID","Station No","Station Desc","Task No","Task ID","Task Description",
+                     "Task Notes","Step No","Step Description","Key Points","Safety Icons",
+                     "Tools (Step)","Drawings (Step)","Cycle Time (min)"));
+  stations.forEach(s => {
+    if(!s.tasks.length) {
+      // Station exists but no tasks — still write a row so the station is captured
+      sections.push(row(s.sopId, s.stationNo, s.stationDesc||"", "","","","","","","","","","",""));
+      return;
+    }
+    s.tasks.forEach(t => {
+      if(!t.steps.length) {
+        sections.push(row(s.sopId, s.stationNo, s.stationDesc||"", t.taskNo, t.taskId,
+                          t.description, t.generalNotes||"", "","","","","","",""));
+        return;
+      }
+      t.steps.forEach((st,si) => {
+        const icons = (st.icons||[st.icon]).filter(i=>i&&i!=="none").map(i=>ICONS[i]?.label||i).join("; ");
+        const stepTools = (st.selectedTools||[]).join("; ");
+        const stepDrawings = (st.selectedDrawings||[]).join("; ");
+        sections.push(row(s.sopId, s.stationNo, s.stationDesc||"",
+          t.taskNo, t.taskId, t.description, t.generalNotes||"",
+          st.stepNumber||si+1, st.description||"", st.keyPoints||"",
+          icons, stepTools, stepDrawings, toMinutes(st).toFixed(3)));
+      });
+    });
+  });
+
+  return sections.join("\r\n");
 };
 
 // exportCSV — manual download from Line Balance tab
@@ -2598,117 +2648,173 @@ function CsvRestoreTool({ currentLines, currentStations, onClose, onRestore }) {
 
   // ── Parse CSV text → structured data ─────────────────────────────────────
   const parseCSV = (text) => {
-    const lines = text.split(/\r?\n/).filter(Boolean);
-    if(lines.length < 2) return {error:"CSV appears empty."};
+    const allLines = text.split(/\r?\n/);
 
-    // Parse a single CSV row respecting quoted fields
     const parseRow = (line) => {
       const cols = []; let cur = ""; let inQ = false;
       for(let i=0;i<line.length;i++){
         const c=line[i];
-        if(c==='"'){ if(inQ&&line[i+1]==='"'){cur+='"';i++;} else inQ=!inQ; }
-        else if(c===','&&!inQ){ cols.push(cur); cur=""; }
+        if(c==='"'){if(inQ&&line[i+1]==='"'){cur+='"';i++;}else inQ=!inQ;}
+        else if(c===','&&!inQ){cols.push(cur);cur="";}
         else cur+=c;
       }
       cols.push(cur);
       return cols.map(c=>c.trim());
     };
 
-    const header = parseRow(lines[0]).map(h=>h.toLowerCase().replace(/[^a-z]/g,""));
-    // Expected: sopid stationno stationdesc taskno taskid taskdescription stepno stepdescription keypoints safetyicon cycletimemin
-    const idx = {
-      sopId:    header.indexOf("sopid"),
-      stNo:     header.indexOf("stationno"),
-      stDesc:   header.indexOf("stationdesc"),
-      taskNo:   header.indexOf("taskno"),
-      taskId:   header.indexOf("taskid"),
-      taskDesc: header.indexOf("taskdescription"),
-      stepNo:   header.indexOf("stepno"),
-      stepDesc: header.indexOf("stepdescription"),
-      keyPts:   header.indexOf("keypoints"),
-      icon:     header.indexOf("safetyicon"),
-      ct:       header.indexOf("cycletimemin"),
-    };
+    // Split into sections by ## markers
+    const sections={};
+    let cur=null,rows=[];
+    allLines.forEach(line=>{
+      if(line.startsWith("## ")){if(cur)sections[cur]=rows;cur=line.slice(3).trim();rows=[];}
+      else if(cur&&line.trim()) rows.push(line);
+    });
+    if(cur) sections[cur]=rows;
+    const isLegacy = Object.keys(sections).length===0;
 
-    if(idx.sopId===-1||idx.stNo===-1) return {error:"CSV does not match expected SOP Builder format. Check that it was exported from this tool."};
-
-    // Group rows: stationNo → taskNo → steps[]
-    const stationMap = new Map(); // stationNo → {sopId, stDesc, tasks: Map}
-
-    for(let i=1;i<lines.length;i++){
-      const r = parseRow(lines[i]);
-      if(r.every(c=>!c)) continue; // blank row
-      const stNo   = r[idx.stNo]   || "";
-      const sopId  = r[idx.sopId]  || "";
-      const stDesc = idx.stDesc>-1 ? r[idx.stDesc]||"" : "";
-      const taskNo = r[idx.taskNo] || "";
-      const taskId = r[idx.taskId] || "";
-      const taskDesc = idx.taskDesc>-1 ? r[idx.taskDesc]||"" : "";
-      const stepNo   = idx.stepNo>-1  ? r[idx.stepNo]||""  : "";
-      const stepDesc = idx.stepDesc>-1? r[idx.stepDesc]||"" : "";
-      const keyPts   = idx.keyPts>-1  ? r[idx.keyPts]||""  : "";
-      const icon     = idx.icon>-1    ? r[idx.icon]||""    : "";
-      const ct       = idx.ct>-1      ? r[idx.ct]||""      : "";
-
-      if(!stNo) continue;
-
-      if(!stationMap.has(stNo)) stationMap.set(stNo, {sopId, stDesc, tasks: new Map()});
-      const stData = stationMap.get(stNo);
-
-      if(taskNo) {
-        if(!stData.tasks.has(taskNo)) stData.tasks.set(taskNo, {taskId, taskDesc, steps:[]});
-        const tData = stData.tasks.get(taskNo);
-        if(stepDesc) {
-          tData.steps.push({stepNo, stepDesc, keyPts, icon, ct});
-        }
+    // ── Station Metadata ────────────────────────────────────────────────────
+    const stationMeta={};
+    if(sections["STATION METADATA"]){
+      const rs=sections["STATION METADATA"];
+      if(rs.length>0){
+        const h=parseRow(rs[0]).map(x=>x.toLowerCase().replace(/[^a-z]/g,""));
+        const fi=(n)=>h.indexOf(n);
+        const I={sopId:fi("sopid"),stNo:fi("stationno"),stDesc:fi("stationdesc"),
+          asmVer:fi("asmversion"),sopRev:fi("soprevision"),revBy:fi("revisedby"),
+          purpose:fi("purpose"),safety:fi("safetysummary"),notes:fi("generalnotes"),
+          tools:fi("toolsequipment"),drawings:fi("applicabledrawings")};
+        rs.slice(1).forEach(line=>{
+          const r=parseRow(line);
+          const stNo=I.stNo>-1?r[I.stNo]||"":"";if(!stNo)return;
+          stationMeta[stNo]={
+            sopId:I.sopId>-1?r[I.sopId]||"":"",
+            stDesc:I.stDesc>-1?r[I.stDesc]||"":"",
+            asmVer:I.asmVer>-1?r[I.asmVer]||"":"",
+            sopRev:I.sopRev>-1?r[I.sopRev]||"A":"A",
+            revisedBy:I.revBy>-1?r[I.revBy]||"":"",
+            purpose:I.purpose>-1?r[I.purpose]||"":"",
+            safety:I.safety>-1?r[I.safety]||"":"",
+            generalNotes:I.notes>-1?r[I.notes]||"":"",
+            toolsRaw:I.tools>-1?r[I.tools]||"":"",
+            drawingsRaw:I.drawings>-1?r[I.drawings]||"":"",
+          };
+        });
       }
     }
 
-    if(stationMap.size===0) return {error:"No stations found in CSV."};
-
-    // Derive line name from first SOP ID prefix e.g. "PWD-WIP-01-V2.A" → "PWD-WIP"
-    const firstSopId = [...stationMap.values()][0].sopId || "";
-    const parts = firstSopId.split("-");
-    const guessedLineName = parts.length>=3 ? parts.slice(0,2).join("-") : firstSopId.split(".")[0] || "Restored";
-
-    // Build stations array
-    const stations = [];
-    stationMap.forEach((stData, stNo) => {
-      const tasks = [];
-      stData.tasks.forEach((tData, taskNo) => {
-        const steps = tData.steps.map((sp, si) => ({
-          ...mkStep(),
-          stepNumber:  sp.stepNo || String(si+1),
-          useStepNumber: !!sp.stepNo,
-          description: sp.stepDesc,
-          keyPoints:   sp.keyPts,
-          icons:       sp.icon ? sp.icon.split(";").map(s=>s.trim()).filter(Boolean) : [],
-          // CSV stores minutes as decimal — convert to seconds for display
-          cycleTime:   sp.ct ? String(Math.round(parseFloat(sp.ct||0)*60)) : "",
-        }));
-        tasks.push({
-          ...mkTask(stData.sopId, parseInt(taskNo)||tasks.length+1),
-          taskNo:      parseInt(taskNo)||tasks.length+1,
-          taskId:      tData.taskId,
-          description: tData.taskDesc,
-          steps,
+    // ── Revision Log ────────────────────────────────────────────────────────
+    const revisionLog={};
+    if(sections["REVISION LOG"]){
+      const rs=sections["REVISION LOG"];
+      if(rs.length>0){
+        const h=parseRow(rs[0]).map(x=>x.toLowerCase().replace(/[^a-z]/g,""));
+        const I={stNo:h.indexOf("stationno"),rev:h.indexOf("rev"),date:h.indexOf("date"),
+          desc:h.indexOf("description"),by:h.indexOf("revisedby")};
+        rs.slice(1).forEach(line=>{
+          const r=parseRow(line);
+          const stNo=I.stNo>-1?r[I.stNo]||"":"";if(!stNo)return;
+          if(!revisionLog[stNo])revisionLog[stNo]=[];
+          revisionLog[stNo].push({
+            rev:I.rev>-1?r[I.rev]||"":"",
+            date:I.date>-1?r[I.date]||"":"",
+            description:I.desc>-1?r[I.desc]||"":"",
+            by:I.by>-1?r[I.by]||"":"",
+          });
         });
-      });
-      const s = {
-        ...mkStation(),
-        stationNo:  stNo,
-        sopId:      stData.sopId,
-        stationDesc:stData.stDesc,
-        // Try to extract asmVersion and sopRev from sopId e.g. PWD-WIP-01-V2.A
-        asmVersion: (stData.sopId.match(/-V(\d+)\./) || [])[1] || "",
-        sopRev:     (stData.sopId.match(/\.([A-Z]+)$/) || [])[1] || "A",
-        tasks:      reindex(tasks, stData.sopId),
-      };
-      stations.push(s);
+      }
+    }
+
+    // ── Tasks & Steps ───────────────────────────────────────────────────────
+    const taskRows=sections["TASKS AND STEPS"]||(isLegacy?allLines.filter(Boolean):[]);
+    if(taskRows.length<2) return {error:"No task/step data found in CSV."};
+
+    const h=parseRow(taskRows[0]).map(x=>x.toLowerCase().replace(/[^a-z]/g,""));
+    const fi=(n)=>h.indexOf(n);
+    const I={
+      sopId:fi("sopid"),stNo:fi("stationno"),stDesc:fi("stationdesc"),
+      taskNo:fi("taskno"),taskId:fi("taskid"),taskDesc:fi("taskdescription"),
+      taskNotes:fi("tasknotes"),stepNo:fi("stepno"),stepDesc:fi("stepdescription"),
+      keyPts:fi("keypoints"),
+      icon:fi("safetyicons")>-1?fi("safetyicons"):fi("safetyicon"),
+      ct:fi("cycletimemin"),
+    };
+    if(I.stNo===-1) return {error:"CSV does not match expected SOP Builder format."};
+
+    const stationMap=new Map();
+    taskRows.slice(1).forEach(line=>{
+      const r=parseRow(line);if(r.every(c=>!c))return;
+      const stNo=r[I.stNo]||"";if(!stNo)return;
+      const sopId=I.sopId>-1?r[I.sopId]||"":"";
+      const stDesc=I.stDesc>-1?r[I.stDesc]||"":"";
+      const taskNo=I.taskNo>-1?r[I.taskNo]||"":"";
+      const taskId=I.taskId>-1?r[I.taskId]||"":"";
+      const taskDesc=I.taskDesc>-1?r[I.taskDesc]||"":"";
+      const taskNotes=I.taskNotes>-1?r[I.taskNotes]||"":"";
+      const stepNo=I.stepNo>-1?r[I.stepNo]||"":"";
+      const stepDesc=I.stepDesc>-1?r[I.stepDesc]||"":"";
+      const keyPts=I.keyPts>-1?r[I.keyPts]||"":"";
+      const icon=I.icon>-1?r[I.icon]||"":"";
+      const ct=I.ct>-1?r[I.ct]||"":"";
+      if(!stationMap.has(stNo))stationMap.set(stNo,{sopId,stDesc,tasks:new Map()});
+      const stData=stationMap.get(stNo);
+      if(taskNo){
+        if(!stData.tasks.has(taskNo))stData.tasks.set(taskNo,{taskId,taskDesc,taskNotes,steps:[]});
+        if(stepDesc)stData.tasks.get(taskNo).steps.push({stepNo,stepDesc,keyPts,icon,ct});
+      }
     });
 
-    return {stations, guessedLineName};
+    if(stationMap.size===0)return{error:"No stations found in CSV."};
+
+    const firstSopId=[...stationMap.values()][0].sopId||"";
+    const parts=firstSopId.split("-");
+    const guessedLineName=parts.length>=3?parts.slice(0,2).join("-"):firstSopId.split(".")[0]||"Restored";
+
+    const stations=[];
+    stationMap.forEach((stData,stNo)=>{
+      const meta=stationMeta[stNo]||{};
+      const revEntries=revisionLog[stNo]||[{rev:"A",date:"",description:"Initial Release",by:""}];
+      const toolList=meta.toolsRaw
+        ?meta.toolsRaw.split(";").map(t=>t.trim()).filter(Boolean).map(t=>{
+            const m=t.match(/^(.+?)\s*\((.+?)\)\s*$/);
+            return m?{id:Date.now()+Math.random(),name:m[1].trim(),partNo:m[2].trim()}:{id:Date.now()+Math.random(),name:t,partNo:""};
+          })
+        :[];
+      const drawings=meta.drawingsRaw
+        ?meta.drawingsRaw.split(";").map(d=>d.trim()).filter(Boolean).map(d=>{
+            const m=d.match(/^(.+?)\s*[—-]\s*(.+)$/);
+            return m?{drawingNo:m[1].trim(),description:m[2].trim()}:{drawingNo:d,description:""};
+          })
+        :[{drawingNo:"",description:""}];
+      const tasks=[];
+      stData.tasks.forEach((tData,taskNo)=>{
+        const steps=tData.steps.map((sp,si)=>({
+          ...mkStep(),
+          stepNumber:sp.stepNo||String(si+1),useStepNumber:!!sp.stepNo,
+          description:sp.stepDesc,keyPoints:sp.keyPts,
+          icons:sp.icon?sp.icon.split(";").map(s=>s.trim()).filter(Boolean):[],
+          cycleTime:sp.ct?String(Math.round(parseFloat(sp.ct||0)*60)):"",
+        }));
+        tasks.push({...mkTask(stData.sopId,parseInt(taskNo)||tasks.length+1),
+          taskNo:parseInt(taskNo)||tasks.length+1,taskId:tData.taskId,
+          description:tData.taskDesc,generalNotes:tData.taskNotes||"",steps});
+      });
+      stations.push({
+        ...mkStation(),
+        stationNo:stNo,sopId:meta.sopId||stData.sopId,
+        stationDesc:meta.stDesc||stData.stDesc,
+        asmVersion:meta.asmVer||(stData.sopId.match(/-V(\d+)\./) ||[])[1]||"",
+        sopRev:meta.sopRev||(stData.sopId.match(/\.([A-Z]+)$/) ||[])[1]||"A",
+        revisedBy:meta.revisedBy||"",purpose:meta.purpose||"",
+        safety:meta.safety||"",generalNotes:meta.generalNotes||"",
+        toolList,tools:toolList.map(t=>t.partNo?`${t.name} (${t.partNo})`:t.name).join(", "),
+        drawings,revisionEntries:revEntries,
+        revisionLog:revEntries.map(e=>`${e.rev} - ${e.description}`).join("\n"),
+        tasks:reindex(tasks,meta.sopId||stData.sopId),
+      });
+    });
+    return {stations,guessedLineName};
   };
+
 
   const handleFile = (file) => {
     if(!file) return;
