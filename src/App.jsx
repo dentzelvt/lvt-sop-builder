@@ -2584,6 +2584,306 @@ Be specific and practical. Reference the actual station/task names from the data
 }
 
 
+// ─── CSV Restore Tool ─────────────────────────────────────────────────────────
+// Parses a backup CSV produced by buildCSV() and reconstructs a full Line
+// with Stations → Tasks → Steps. Images and drawings cannot be recovered
+// from CSV (they were never exported), but all text content and cycle times
+// are restored. The created line is named "{detected name}_Restored".
+function CsvRestoreTool({ currentLines, currentStations, onClose, onRestore }) {
+  const [step,       setStep]       = useState("pick"); // pick | preview | done
+  const [fileName,   setFileName]   = useState("");
+  const [error,      setError]      = useState("");
+  const [preview,    setPreview]    = useState(null);  // {lineName, stations[]}
+  const fileRef = useRef();
+
+  // ── Parse CSV text → structured data ─────────────────────────────────────
+  const parseCSV = (text) => {
+    const lines = text.split(/\r?\n/).filter(Boolean);
+    if(lines.length < 2) return {error:"CSV appears empty."};
+
+    // Parse a single CSV row respecting quoted fields
+    const parseRow = (line) => {
+      const cols = []; let cur = ""; let inQ = false;
+      for(let i=0;i<line.length;i++){
+        const c=line[i];
+        if(c==='"'){ if(inQ&&line[i+1]==='"'){cur+='"';i++;} else inQ=!inQ; }
+        else if(c===','&&!inQ){ cols.push(cur); cur=""; }
+        else cur+=c;
+      }
+      cols.push(cur);
+      return cols.map(c=>c.trim());
+    };
+
+    const header = parseRow(lines[0]).map(h=>h.toLowerCase().replace(/[^a-z]/g,""));
+    // Expected: sopid stationno stationdesc taskno taskid taskdescription stepno stepdescription keypoints safetyicon cycletimemin
+    const idx = {
+      sopId:    header.indexOf("sopid"),
+      stNo:     header.indexOf("stationno"),
+      stDesc:   header.indexOf("stationdesc"),
+      taskNo:   header.indexOf("taskno"),
+      taskId:   header.indexOf("taskid"),
+      taskDesc: header.indexOf("taskdescription"),
+      stepNo:   header.indexOf("stepno"),
+      stepDesc: header.indexOf("stepdescription"),
+      keyPts:   header.indexOf("keypoints"),
+      icon:     header.indexOf("safetyicon"),
+      ct:       header.indexOf("cycletimemin"),
+    };
+
+    if(idx.sopId===-1||idx.stNo===-1) return {error:"CSV does not match expected SOP Builder format. Check that it was exported from this tool."};
+
+    // Group rows: stationNo → taskNo → steps[]
+    const stationMap = new Map(); // stationNo → {sopId, stDesc, tasks: Map}
+
+    for(let i=1;i<lines.length;i++){
+      const r = parseRow(lines[i]);
+      if(r.every(c=>!c)) continue; // blank row
+      const stNo   = r[idx.stNo]   || "";
+      const sopId  = r[idx.sopId]  || "";
+      const stDesc = idx.stDesc>-1 ? r[idx.stDesc]||"" : "";
+      const taskNo = r[idx.taskNo] || "";
+      const taskId = r[idx.taskId] || "";
+      const taskDesc = idx.taskDesc>-1 ? r[idx.taskDesc]||"" : "";
+      const stepNo   = idx.stepNo>-1  ? r[idx.stepNo]||""  : "";
+      const stepDesc = idx.stepDesc>-1? r[idx.stepDesc]||"" : "";
+      const keyPts   = idx.keyPts>-1  ? r[idx.keyPts]||""  : "";
+      const icon     = idx.icon>-1    ? r[idx.icon]||""    : "";
+      const ct       = idx.ct>-1      ? r[idx.ct]||""      : "";
+
+      if(!stNo) continue;
+
+      if(!stationMap.has(stNo)) stationMap.set(stNo, {sopId, stDesc, tasks: new Map()});
+      const stData = stationMap.get(stNo);
+
+      if(taskNo) {
+        if(!stData.tasks.has(taskNo)) stData.tasks.set(taskNo, {taskId, taskDesc, steps:[]});
+        const tData = stData.tasks.get(taskNo);
+        if(stepDesc) {
+          tData.steps.push({stepNo, stepDesc, keyPts, icon, ct});
+        }
+      }
+    }
+
+    if(stationMap.size===0) return {error:"No stations found in CSV."};
+
+    // Derive line name from first SOP ID prefix e.g. "PWD-WIP-01-V2.A" → "PWD-WIP"
+    const firstSopId = [...stationMap.values()][0].sopId || "";
+    const parts = firstSopId.split("-");
+    const guessedLineName = parts.length>=3 ? parts.slice(0,2).join("-") : firstSopId.split(".")[0] || "Restored";
+
+    // Build stations array
+    const stations = [];
+    stationMap.forEach((stData, stNo) => {
+      const tasks = [];
+      stData.tasks.forEach((tData, taskNo) => {
+        const steps = tData.steps.map((sp, si) => ({
+          ...mkStep(),
+          stepNumber:  sp.stepNo || String(si+1),
+          useStepNumber: !!sp.stepNo,
+          description: sp.stepDesc,
+          keyPoints:   sp.keyPts,
+          icons:       sp.icon ? sp.icon.split(";").map(s=>s.trim()).filter(Boolean) : [],
+          // CSV stores minutes as decimal — convert to seconds for display
+          cycleTime:   sp.ct ? String(Math.round(parseFloat(sp.ct||0)*60)) : "",
+        }));
+        tasks.push({
+          ...mkTask(stData.sopId, parseInt(taskNo)||tasks.length+1),
+          taskNo:      parseInt(taskNo)||tasks.length+1,
+          taskId:      tData.taskId,
+          description: tData.taskDesc,
+          steps,
+        });
+      });
+      const s = {
+        ...mkStation(),
+        stationNo:  stNo,
+        sopId:      stData.sopId,
+        stationDesc:stData.stDesc,
+        // Try to extract asmVersion and sopRev from sopId e.g. PWD-WIP-01-V2.A
+        asmVersion: (stData.sopId.match(/-V(\d+)\./) || [])[1] || "",
+        sopRev:     (stData.sopId.match(/\.([A-Z]+)$/) || [])[1] || "A",
+        tasks:      reindex(tasks, stData.sopId),
+      };
+      stations.push(s);
+    });
+
+    return {stations, guessedLineName};
+  };
+
+  const handleFile = (file) => {
+    if(!file) return;
+    setFileName(file.name);
+    setError("");
+    const reader = new FileReader();
+    reader.onload = e => {
+      const result = parseCSV(e.target.result);
+      if(result.error) { setError(result.error); return; }
+      // Guess line name from filename e.g. "Powder_Coat_2026-06-24.csv" → "Powder Coat"
+      const namePart = file.name.replace(/\.csv$/i,"").replace(/_\d{4}-\d{2}-\d{2}$/,"").replace(/_/g," ").trim();
+      const lineName = (namePart || result.guessedLineName || "Restored") + "_Restored";
+      setPreview({lineName, stations: result.stations, guessedLineName: result.guessedLineName});
+      setStep("preview");
+    };
+    reader.readAsText(file);
+  };
+
+  const doRestore = () => {
+    if(!preview) return;
+    const newLine = {
+      ...mkLine(),
+      name: preview.lineName,
+      description: `Restored from CSV: ${fileName}`,
+      stationIdentifier: preview.guessedLineName,
+    };
+    const newStations = preview.stations.map(s => ({...s, id: Date.now()+Math.random()}));
+    newLine.stationIds = newStations.map(s=>s.id);
+    onRestore(newStations, newLine);
+    setStep("done");
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:"white",borderRadius:12,padding:0,maxWidth:580,width:"95%",maxHeight:"85vh",
+                   display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.3)"}}>
+
+        {/* Header */}
+        <div style={{background:"#e65100",color:"white",padding:"14px 20px",borderRadius:"12px 12px 0 0",
+                     display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:15}}>♻️ Restore Line from CSV Backup</div>
+            <div style={{fontSize:11,opacity:0.85,marginTop:2}}>Recovers stations, tasks, and steps from a .csv backup file</div>
+          </div>
+          <button onClick={onClose}
+            style={{background:"rgba(255,255,255,0.2)",border:"none",color:"white",
+                    borderRadius:4,padding:"4px 10px",cursor:"pointer",fontSize:13}}>✕</button>
+        </div>
+
+        <div style={{padding:24,overflowY:"auto",flex:1}}>
+
+          {/* Step: pick file */}
+          {step==="pick" && (
+            <div style={{textAlign:"center",padding:"24px 0"}}>
+              <div style={{fontSize:40,marginBottom:12}}>📊</div>
+              <div style={{fontWeight:700,fontSize:15,marginBottom:8}}>Select your CSV backup file</div>
+              <div style={{fontSize:12,color:"#666",marginBottom:6,lineHeight:1.7}}>
+                Select the <code>.csv</code> file saved alongside your project.<br/>
+                Recovers: Stations · Tasks · Steps · Cycle Times · Descriptions
+              </div>
+              <div style={{background:"#fff3e0",border:"1px solid #ffb74d",borderRadius:6,
+                           padding:"8px 14px",marginBottom:20,fontSize:12,color:"#7c4d00",display:"inline-block"}}>
+                ⚠️ Images and drawings cannot be recovered from CSV — only the JSON contains those.
+              </div>
+              <br/>
+              {error && (
+                <div style={{background:"#ffebee",color:"#c62828",padding:"8px 14px",borderRadius:6,
+                             marginBottom:14,fontSize:12,display:"inline-block"}}>{error}</div>
+              )}
+              <br/>
+              <button onClick={()=>fileRef.current.click()}
+                style={{background:"#e65100",color:"white",border:"none",borderRadius:8,
+                        padding:"12px 28px",cursor:"pointer",fontSize:14,fontWeight:700}}>
+                Browse for CSV file…
+              </button>
+              <input ref={fileRef} type="file" accept=".csv" style={{display:"none"}}
+                onChange={e=>{handleFile(e.target.files[0]);e.target.value="";}}/>
+            </div>
+          )}
+
+          {/* Step: preview */}
+          {step==="preview" && preview && (
+            <div>
+              <div style={{marginBottom:16}}>
+                <div style={{fontWeight:700,fontSize:14,color:"#e65100",marginBottom:4}}>
+                  Restore Preview
+                </div>
+                <div style={{fontSize:12,color:"#555"}}>File: <strong>{fileName}</strong></div>
+              </div>
+
+              {/* Line name */}
+              <div style={{marginBottom:14}}>
+                <label style={{fontSize:12,fontWeight:600,color:"#333",display:"block",marginBottom:4}}>
+                  Restored Line Name
+                </label>
+                <input value={preview.lineName}
+                  onChange={e=>setPreview(p=>({...p,lineName:e.target.value}))}
+                  style={{width:"100%",padding:"7px 10px",border:"2px solid #e65100",borderRadius:6,
+                          fontSize:14,fontWeight:700,color:"#e65100"}}/>
+              </div>
+
+              {/* Stations preview table */}
+              <div style={{fontSize:12,fontWeight:600,color:"#555",marginBottom:6}}>
+                {preview.stations.length} station(s) found:
+              </div>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,marginBottom:16}}>
+                <thead>
+                  <tr style={{background:"#e65100",color:"white"}}>
+                    <th style={{padding:"6px 10px",textAlign:"left"}}>Station No</th>
+                    <th style={{padding:"6px 10px",textAlign:"left"}}>Description</th>
+                    <th style={{padding:"6px 10px",textAlign:"center"}}>Tasks</th>
+                    <th style={{padding:"6px 10px",textAlign:"center"}}>Steps</th>
+                    <th style={{padding:"6px 10px",textAlign:"right"}}>Cycle Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.stations.map((s,i)=>(
+                    <tr key={i} style={{background:i%2===0?"#fff3e0":"white",borderBottom:"1px solid #ffe0b2"}}>
+                      <td style={{padding:"6px 10px",fontWeight:700,color:"#e65100"}}>{s.stationNo}</td>
+                      <td style={{padding:"6px 10px"}}>{s.stationDesc||"—"}</td>
+                      <td style={{padding:"6px 10px",textAlign:"center"}}>{s.tasks.length}</td>
+                      <td style={{padding:"6px 10px",textAlign:"center"}}>{s.tasks.reduce((n,t)=>n+t.steps.length,0)}</td>
+                      <td style={{padding:"6px 10px",textAlign:"right"}}>{fmtTime(sumTasks(s.tasks))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div style={{background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:6,
+                           padding:"8px 12px",marginBottom:16,fontSize:12,color:"#2e7d32"}}>
+                ✓ The restored line will be added to your workspace. Your existing lines are not affected.
+              </div>
+            </div>
+          )}
+
+          {/* Step: done */}
+          {step==="done" && (
+            <div style={{textAlign:"center",padding:"32px 0"}}>
+              <div style={{fontSize:48,marginBottom:12}}>✅</div>
+              <div style={{fontWeight:700,fontSize:16,color:"#2e7d32",marginBottom:8}}>
+                Line Restored Successfully
+              </div>
+              <div style={{fontSize:13,color:"#555"}}>
+                "{preview?.lineName}" has been added to your workspace.
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{padding:"12px 20px",borderTop:"1px solid #e0e0e0",display:"flex",
+                     gap:10,flexShrink:0,justifyContent:"flex-end"}}>
+          {step==="preview" && <>
+            <button onClick={()=>setStep("pick")}
+              style={{padding:"8px 18px",borderRadius:6,border:"1px solid #ddd",
+                      background:"#f5f5f5",cursor:"pointer",fontSize:13}}>← Back</button>
+            <button onClick={doRestore}
+              style={{padding:"8px 20px",borderRadius:6,border:"none",
+                      background:"#e65100",color:"white",cursor:"pointer",fontSize:13,fontWeight:700}}>
+              ♻️ Restore Line
+            </button>
+          </>}
+          {(step==="pick"||step==="done") && (
+            <button onClick={onClose}
+              style={{padding:"8px 18px",borderRadius:6,border:"1px solid #ddd",
+                      background:"#f5f5f5",cursor:"pointer",fontSize:13}}>
+              {step==="done"?"Close":"Cancel"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Import Wizard ─────────────────────────────────────────────────────────────
 // Three steps:
 //   1. Parse file, show what's inside
@@ -3819,6 +4119,7 @@ export default function App() {
   const [saveMsg,  setSaveMsg]  = useState("");
   const [showSaveInfo,   setShowSaveInfo]   = useState(false);
   const [showImport,     setShowImport]     = useState(false);
+  const [showCsvRestore, setShowCsvRestore] = useState(false);
   const [showExportSave, setShowExportSave] = useState(false);
   const [deletePrompt,   setDeletePrompt]   = useState(null); // {type, name, ids}
   const [sidebarOpen,    setSidebarOpen]    = useState(true);
@@ -4170,6 +4471,7 @@ export default function App() {
           </button>
           <button onClick={()=>setShowExportSave(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>⬇️ Export Save</button>
           <button onClick={()=>setShowImport(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📥 Import</button>
+          <button onClick={()=>setShowCsvRestore(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>♻️ Restore from CSV</button>
           <button onClick={async()=>{
             // Use File System Access API if available
             if(window.showOpenFilePicker){
@@ -4463,6 +4765,17 @@ export default function App() {
           flash("✓ New project started");
         }}
         onCancel={()=>setShowNewProject(false)}
+      />}
+      {showCsvRestore&&<CsvRestoreTool
+        currentLines={lines}
+        currentStations={stations}
+        onClose={()=>setShowCsvRestore(false)}
+        onRestore={(newStations, newLine)=>{
+          setStations(prev=>[...prev, ...newStations]);
+          setLines(prev=>[...prev, newLine]);
+          setShowCsvRestore(false);
+          flash(`✓ Restored: ${newLine.name}`);
+        }}
       />}
       {showImport&&<ImportWizard
         currentStations={stations}
