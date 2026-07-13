@@ -172,7 +172,7 @@ const lsSave = (s, l=[], meta={}) => {
       activeFileName: meta.activeFileName ?? null,
       activeFileCsvName: meta.activeFileCsvName ?? null,
     }));
-  } catch{}
+  } catch(e){ console.error("[lsSave] FAILED:", e); }
 };
 const migrateStation = (s) => {
   // Seed revisionEntries if missing (stations saved before this feature)
@@ -4351,6 +4351,45 @@ function SaveInfoModal({ onExport, onClose }) {
   );
 }
 
+// ─── More Menu Dropdown ───────────────────────────────────────────────────────
+function MoreMenu({ items }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+  useEffect(()=>{
+    const handler = (e) => { if(ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return ()=>document.removeEventListener("mousedown", handler);
+  },[]);
+  return (
+    <div ref={ref} style={{position:"relative",flexShrink:0}}>
+      <button onClick={()=>setOpen(o=>!o)}
+        style={{background:open?"rgba(255,255,255,0.2)":"rgba(255,255,255,0.12)",
+                border:"1px solid rgba(255,255,255,0.3)",borderRadius:5,
+                padding:"5px 10px",cursor:"pointer",fontSize:12,color:"white",
+                display:"flex",alignItems:"center",gap:4}}>
+        More ▾
+      </button>
+      {open && (
+        <div style={{position:"absolute",right:0,top:"calc(100% + 4px)",
+                     background:"white",borderRadius:8,boxShadow:"0 4px 20px rgba(0,0,0,0.2)",
+                     minWidth:180,zIndex:600,overflow:"hidden",border:"1px solid #e0e0e0"}}>
+          {items.map((item,i)=>(
+            <button key={i} onClick={()=>{item.action();setOpen(false);}}
+              style={{display:"block",width:"100%",textAlign:"left",
+                      padding:"10px 16px",fontSize:13,background:"none",border:"none",
+                      borderBottom:i<items.length-1?"1px solid #f0f0f0":"none",
+                      cursor:"pointer",color:"#333"}}
+              onMouseEnter={e=>e.currentTarget.style.background="#f5f5f5"}
+              onMouseLeave={e=>e.currentTarget.style.background="none"}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const _savedData = lsLoad(); // call once, share between all state initializers
@@ -4457,44 +4496,16 @@ export default function App() {
 
     setStations(newStations);
     setLines(newLines);
-
-    // Link the source file handle to imported lines automatically
-    if(mergePrompt.sourceHandle) {
-      const {sourceHandle, sourceFileName} = mergePrompt;
-      const csvName = sourceHandle._csvHandle?.name || null;
-
-      // Get write permission up front
-      sourceHandle.queryPermission({mode:"readwrite"}).then(perm => {
-        if(perm !== "granted") return sourceHandle.requestPermission({mode:"readwrite"});
-      }).catch(()=>{});
-
-      const linkLine = (lineId) => {
-        setLineHandles(p => ({...p, [lineId]: {handle: sourceHandle, name: sourceFileName}}));
-        setLines(prev => prev.map(l => l.id===lineId
-          ? {...l, linkedFileName: sourceFileName, linkedCsvName: csvName}
-          : l
-        ));
-      };
-
-      // Link to non-conflicting lines (newly added)
-      nonConflicts.forEach(il => {
-        const created = newLines[newLines.length - nonConflicts.indexOf(il) - 1];
-        if(created) linkLine(created.id);
-      });
-
-      // Link to replaced conflicting lines
-      conflicts.forEach(({existing}) => {
-        const res = resolutions[existing.id] || "keep";
-        if(res === "replace") linkLine(existing.id);
-      });
-    }
-
     setMergePrompt(null);
 
-    // Collect IDs of lines that were imported (new or replaced)
+    // Collect IDs of lines that were just imported (new or replaced)
+    // Build a map from incoming line name → new line ID so we can link files correctly
     const importedLineIds = [];
-    nonConflicts.forEach((il, i) => {
-      const created = newLines[newLines.length - nonConflicts.length + i];
+    nonConflicts.forEach(il => {
+      // Find the line we just pushed — match by name since we remapped the ID
+      const created = newLines.find(l =>
+        l.name === il.name && !lines.some(existing => existing.id === l.id)
+      );
       if(created) importedLineIds.push(created.id);
     });
     conflicts.forEach(({existing}) => {
@@ -4503,7 +4514,6 @@ export default function App() {
     });
 
     if(importedLineIds.length > 0 && mergePrompt.sourceHandle) {
-      // Show the LinkFiles modal so user can choose to link or create new files
       setLinkFilesPrompt({
         lineIds: importedLineIds,
         sourceHandle: mergePrompt.sourceHandle,
@@ -4652,154 +4662,97 @@ export default function App() {
         </button>
         <div style={{flex:1}}/>
         <div style={{display:"flex",alignItems:"center",gap:5,padding:"8px 0"}}>
-          {activeFileName&&!saveMsg&&(
-            <span style={{fontSize:11,color:"#a5d6a7",marginRight:4,display:"flex",alignItems:"center",gap:6,
-                          background:"rgba(255,255,255,0.1)",borderRadius:5,padding:"3px 8px"}}>
-              {/* JSON file */}
-              <span style={{display:"flex",alignItems:"center",gap:3}}>
-                <span style={{opacity:0.7}}>📄</span>
-                <span style={{maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
-                  title={activeFileName}>{activeFileName}</span>
-                <button onClick={()=>{setActiveFileHandle(null);setActiveFileName("");openedAtRef.current=null;}}
-                  title="Disconnect JSON file"
-                  style={{background:"none",border:"none",color:"rgba(255,255,255,0.6)",cursor:"pointer",fontSize:11,padding:"0 1px",lineHeight:1}}>✕</button>
-              </span>
-              {/* CSV file — shown if linked */}
-              {activeFileHandle?._csvHandle && (
-                <>
-                  <span style={{opacity:0.4}}>+</span>
-                  <span style={{display:"flex",alignItems:"center",gap:3}}>
-                    <span style={{opacity:0.7}}>📊</span>
-                    <span style={{maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
-                      title={activeFileHandle._csvHandle.name}>{activeFileHandle._csvHandle.name}</span>
-                    <button onClick={()=>{ if(activeFileHandle) activeFileHandle._csvHandle=null; setActiveFileName(n=>n); }}
-                      title="Disconnect CSV file"
-                      style={{background:"none",border:"none",color:"rgba(255,255,255,0.6)",cursor:"pointer",fontSize:11,padding:"0 1px",lineHeight:1}}>✕</button>
-                  </span>
-                </>
-              )}
-            </span>
-          )}
-          {saveMsg&&<span style={{fontSize:11,color:"#a5d6a7",marginRight:4}}>{saveMsg}</span>}
+          {/* ── Primary: New, Open, Save ── */}
           <button onClick={()=>setShowNewProject(true)}
-            style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>
-            🆕 New Project
-          </button>
-          <button onClick={()=>setShowChangelog(true)}
-            title={`LVT SOP Builder v${APP_VERSION} — View changelog`}
-            style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.25)",
-                    borderRadius:5,padding:"4px 9px",cursor:"pointer",fontSize:11,color:"rgba(255,255,255,0.75)",
-                    fontFamily:"monospace",letterSpacing:"0.3px"}}>
-            v{APP_VERSION}
-          </button>
-          <button onClick={()=>{
-            const base=window.location.origin+window.location.pathname.replace(/\/[^/]*$/,"/");
-            window.open(base+"user-guide.html","_blank","noopener");
-          }} title="Open User Guide"
-            style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white",display:"flex",alignItems:"center",gap:5}}>
-            ❓ Help
+            style={{background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:5,padding:"5px 10px",cursor:"pointer",fontSize:12,color:"white"}}>
+            🆕 New
           </button>
           <button onClick={async()=>{
-            if(activeFileHandle || window.showSaveFilePicker) {
-              // Conflict check: if we have an active file handle, check if it was
-              // modified on disk since we opened/last-saved it
-              if(activeFileHandle) {
-                const diskState = await readFileSavedAt(activeFileHandle);
-                if(diskState && diskState.savedAt && openedAtRef.current &&
-                   diskState.savedAt > openedAtRef.current) {
-                  // File was updated by someone else since we opened it
-                  setFileConflict({
-                    fileUpdatedAt: diskState.savedAt,
-                    pendingSave: async () => {
-                      // Force-save, bypassing conflict check
-                      await smartSave(stations, lines,
-                        `All_Lines_${new Date().toISOString().slice(0,10)}`,
-                        activeFileHandle,
-                        (h,n)=>{ setActiveFileHandle(h); setActiveFileName(n||""); },
-                        flash
-                      );
-                      openedAtRef.current = new Date().toISOString();
-                      setFileConflict(null);
-                    }
-                  });
-                  return; // Block the save — user must resolve conflict first
-                }
-              }
-              await smartSave(stations, lines,
-                `All_Lines_${new Date().toISOString().slice(0,10)}`,
-                activeFileHandle,
-                (h,n)=>{ setActiveFileHandle(h); setActiveFileName(n||""); if(h) openedAtRef.current=new Date().toISOString(); },
-                flash
-              );
-            } else {
-              setShowSaveInfo(true);
-            }
-          }} style={{background:activeFileHandle?"rgba(255,255,255,0.25)":"rgba(255,255,255,0.15)",
-                     border:activeFileHandle?"2px solid #a5d6a7":"1px solid rgba(255,255,255,0.35)",
-                     borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white",
-                     fontWeight:activeFileHandle?700:400}}>
-            💾 Save
-          </button>
-          <button onClick={()=>setShowExportSave(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>⬇️ Export Save</button>
-          <button onClick={()=>setShowImport(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📥 Import</button>
-          <button onClick={()=>setShowCsvRestore(true)} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>♻️ Restore from CSV</button>
-          <button onClick={async()=>{
-            // Use File System Access API if available
             if(window.showOpenFilePicker){
               try {
                 const [handle] = await window.showOpenFilePicker({
-                  types:[{description:"SOP Builder Save File",accept:{"application/json":[".json"]}}],
-                  multiple:false
-                });
+                  types:[{description:"SOP Builder Save File",accept:{"application/json":[".json"]}}],multiple:false});
                 const file = await handle.getFile();
-                // Verify write permission up front
                 const perm = await handle.queryPermission({mode:"readwrite"});
                 if(perm!=="granted") await handle.requestPermission({mode:"readwrite"});
-
                 loadFile(file, loaded=>{
-                  setStations(loaded.stations);
-                  setLines(loaded.lines||[]);
-                  setActive(null);
-                  setActiveFileName(file.name);
-                  setActiveFileHandle(handle);
-                  // Record when we opened this file for conflict detection
+                  setStations(loaded.stations);setLines(loaded.lines||[]);setActive(null);
+                  setActiveFileName(file.name);setActiveFileHandle(handle);
                   openedAtRef.current = new Date().toISOString();
                   flash(`✓ Opened: ${file.name}`);
-
-                  // Show React modal to link companion CSV
                   const baseName = file.name.replace(/\.json$/i,"");
-                  setCsvPrompt({
-                    baseName,
-                    jsonFileName: file.name,
-                    onLink: async () => {
-                      try {
-                        const [csvHandle] = await window.showOpenFilePicker({
-                          types:[{description:"CSV Backup",accept:{"text/csv":[".csv"]}}],
-                          multiple:false
-                        });
-                        const csvPerm = await csvHandle.queryPermission({mode:"readwrite"});
-                        if(csvPerm!=="granted") await csvHandle.requestPermission({mode:"readwrite"});
-                        handle._csvHandle = csvHandle;
+                  setCsvPrompt({baseName,jsonFileName:file.name,
+                    onLink:async()=>{
+                      try{
+                        const[csvHandle]=await window.showOpenFilePicker({
+                          types:[{description:"CSV Backup",accept:{"text/csv":[".csv"]}}],multiple:false});
+                        const cp=await csvHandle.queryPermission({mode:"readwrite"});
+                        if(cp!=="granted")await csvHandle.requestPermission({mode:"readwrite"});
+                        handle._csvHandle=csvHandle;
                         flash(`✓ CSV linked: ${csvHandle.name}`);
-                      } catch(e){
-                        if(e.name!=="AbortError") console.warn("CSV link failed",e);
-                      }
+                      }catch(e){if(e.name!=="AbortError")console.warn("CSV link failed",e);}
                       setCsvPrompt(null);
                     },
-                    onSkip: () => { setCsvPrompt(null); flash(`✓ Opened: ${file.name} — CSV will be set on first Save`); }
+                    onSkip:()=>{setCsvPrompt(null);flash(`✓ Opened: ${file.name}`);}
                   });
-                });
-                return;
-              } catch(e){
-                if(e.name==="AbortError") return; // user cancelled
-                // fall through to legacy input
-              }
+                });return;
+              }catch(e){if(e.name==="AbortError")return;}
             }
             loadRef.current.click();
-          }} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📂 Open File</button>
+          }} style={{background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:5,padding:"5px 10px",cursor:"pointer",fontSize:12,color:"white"}}>
+            📂 Open
+          </button>
           <input ref={loadRef} type="file" accept=".json" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;loadFile(f,loaded=>{setStations(loaded.stations);setLines(loaded.lines||[]);setActive(null);setActiveFileHandle(null);setActiveFileName("");flash("✓ Loaded");});e.target.value="";}}/>
-          <button onClick={()=>{exportCSV(stations);flash("✓ CSV downloaded");}} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📊 CSV</button>
-          <button onClick={()=>stations.forEach((s,i)=>setTimeout(()=>exportPDF(s),i*500))} style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>📄 All PDFs</button>
+          <button onClick={async()=>{
+            if(activeFileHandle||window.showSaveFilePicker){
+              if(activeFileHandle){
+                const diskState=await readFileSavedAt(activeFileHandle);
+                if(diskState&&diskState.savedAt&&openedAtRef.current&&diskState.savedAt>openedAtRef.current){
+                  setFileConflict({fileUpdatedAt:diskState.savedAt,pendingSave:async()=>{
+                    await smartSave(stations,lines,`All_Lines_${new Date().toISOString().slice(0,10)}`,activeFileHandle,
+                      (h,n)=>{setActiveFileHandle(h);setActiveFileName(n||"");},flash);
+                    openedAtRef.current=new Date().toISOString();setFileConflict(null);
+                  }});return;
+                }
+              }
+              await smartSave(stations,lines,`All_Lines_${new Date().toISOString().slice(0,10)}`,activeFileHandle,
+                (h,n)=>{setActiveFileHandle(h);setActiveFileName(n||"");if(h)openedAtRef.current=new Date().toISOString();},flash);
+            }else{setShowSaveInfo(true);}
+          }} style={{background:activeFileHandle?"rgba(165,214,167,0.2)":"rgba(255,255,255,0.12)",
+                     border:activeFileHandle?"2px solid #a5d6a7":"1px solid rgba(255,255,255,0.3)",
+                     borderRadius:5,padding:"5px 10px",cursor:"pointer",fontSize:12,color:"white",fontWeight:activeFileHandle?700:400}}>
+            💾 Save{activeFileHandle?" ●":""}
+          </button>
+          {/* Linked file badge */}
+          {activeFileName&&!saveMsg&&(
+            <span style={{fontSize:10,color:"#a5d6a7",display:"flex",alignItems:"center",gap:3,
+                          background:"rgba(255,255,255,0.08)",borderRadius:4,padding:"2px 7px",maxWidth:150,overflow:"hidden"}}>
+              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={activeFileName}>
+                {activeFileName}
+              </span>
+              <button onClick={()=>{setActiveFileHandle(null);setActiveFileName("");openedAtRef.current=null;}}
+                style={{background:"none",border:"none",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:10,padding:0,lineHeight:1,flexShrink:0}}>✕</button>
+            </span>
+          )}
+          {/* ── More dropdown ── */}
+          <MoreMenu items={[
+            {label:"⬇️ Export Save",     action:()=>setShowExportSave(true)},
+            {label:"📥 Import Stations", action:()=>setShowImport(true)},
+            {label:"♻️ Restore from CSV",action:()=>setShowCsvRestore(true)},
+            {label:"📊 Download CSV",    action:()=>{exportCSV(stations);flash("✓ CSV downloaded");}},
+            {label:"📄 All PDFs",        action:()=>stations.forEach((s,i)=>setTimeout(()=>exportPDF(s),i*500))},
+          ]}/>
+          {/* ── Version + Help ── */}
+          <button onClick={()=>setShowChangelog(true)} title={`v${APP_VERSION} — View changelog`}
+            style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.2)",
+                    borderRadius:5,padding:"4px 8px",cursor:"pointer",fontSize:10,color:"rgba(255,255,255,0.6)",fontFamily:"monospace"}}>
+            v{APP_VERSION}
+          </button>
+          <button onClick={()=>{const base=window.location.origin+window.location.pathname.replace(/\/[^/]*$/,"/");window.open(base+"user-guide.html","_blank","noopener");}}
+            title="Open User Guide"
+            style={{background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:5,padding:"5px 10px",cursor:"pointer",fontSize:12,color:"white"}}>
+            ❓
+          </button>
         </div>
       </div>
 
