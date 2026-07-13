@@ -102,7 +102,17 @@ const mkLine = () => ({
 });
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
-const lsSave = (s, l=[]) => { try { localStorage.setItem(SAVE_KEY, JSON.stringify({version:2,savedAt:new Date().toISOString(),stations:s,lines:l})); } catch{} };
+const lsSave = (s, l=[], meta={}) => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(SAVE_KEY)||"{}");
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      version:2, savedAt:new Date().toISOString(), stations:s, lines:l,
+      // Preserve meta fields — merge so we don't lose them on partial calls
+      activeFileName: meta.activeFileName ?? stored.activeFileName ?? null,
+      activeFileCsvName: meta.activeFileCsvName ?? stored.activeFileCsvName ?? null,
+    }));
+  } catch{}
+};
 const migrateStation = (s) => {
   // Seed revisionEntries if missing (stations saved before this feature)
   if (!s.revisionEntries || s.revisionEntries.length === 0) {
@@ -140,7 +150,9 @@ const lsLoad = () => {
     if(!d || typeof d !== 'object') return null;
     return {
       stations: Array.isArray(d.stations) ? d.stations.map(migrateStation) : [],
-      lines:    Array.isArray(d.lines)    ? d.lines                         : []
+      lines:    Array.isArray(d.lines)    ? d.lines                         : [],
+      activeFileName:     d.activeFileName     || null,
+      activeFileCsvName:  d.activeFileCsvName  || null,
     };
   } catch{ return null; }
 };
@@ -4127,19 +4139,21 @@ function ReconnectModal({ queue, onReconnect, onDismiss }) {
         <div style={{display:"flex",gap:12,alignItems:"flex-start",marginBottom:16}}>
           <span style={{fontSize:30}}>🔗</span>
           <div>
-            <div style={{fontWeight:700,fontSize:15,color:TEAL_DARK}}>Reconnect Line File</div>
+            <div style={{fontWeight:700,fontSize:15,color:TEAL_DARK}}>
+              {line.isGlobal ? "Reconnect Workspace File" : "Reconnect Line File"}
+            </div>
             <div style={{fontSize:12,color:"#888",marginTop:2}}>
-              {idx+1} of {queue.length} line(s) need reconnecting
+              {idx+1} of {queue.length} file(s) to reconnect this session
             </div>
           </div>
         </div>
 
         <div style={{background:TEAL_LIGHT,border:"1px solid #80cbc4",borderRadius:8,padding:"12px 14px",marginBottom:16}}>
           <div style={{fontWeight:700,fontSize:13,color:TEAL_DARK,marginBottom:4}}>
-            🏗️ {line.name||"(unnamed line)"}
+            {line.isGlobal ? "🗂️ All Lines (Workspace)" : `🏗️ ${line.name||"(unnamed line)"}`}
           </div>
           <div style={{fontSize:12,color:"#555",lineHeight:1.6}}>
-            This line was previously linked to:<br/>
+            Previously linked to:<br/>
             <code style={{background:"#e0f2f1",padding:"1px 6px",borderRadius:3,fontSize:12}}>
               {line.linkedFileName}
             </code>
@@ -4150,7 +4164,7 @@ function ReconnectModal({ queue, onReconnect, onDismiss }) {
         </div>
 
         <div style={{fontSize:12,color:"#666",marginBottom:18,lineHeight:1.6}}>
-          Browser security requires you to re-select the file each session. Navigate to the same file to restore the link — saves will write back to it automatically.
+          Browser security requires re-selecting files each session. Navigate to the same file — saves will write back to it automatically for the rest of this session.
         </div>
 
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -4232,9 +4246,12 @@ function SaveInfoModal({ onExport, onClose }) {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const _savedData = lsLoad(); // call once, share between both state initializers
+  const _savedData = lsLoad(); // call once, share between all state initializers
   const [stations, setStations] = useState(()=> _savedData ? _savedData.stations : []);
   const [lines,    setLines]    = useState(()=> _savedData ? _savedData.lines    : []);
+  // Restore stored filenames so reconnect prompt shows them on next open
+  const _storedActiveFileName    = _savedData?.activeFileName    || null;
+  const _storedActiveFileCsvName = _savedData?.activeFileCsvName || null;
   const [active,   setActive]   = useState(null);
   const [tab,      setTab]      = useState("lines");
   const [preview,  setPreview]  = useState(null);
@@ -4437,15 +4454,27 @@ export default function App() {
   };
   const setStationHandle= (stationId, handle, name) => setStationHandles(p=>handle?{...p,[stationId]:{handle,name}}:Object.fromEntries(Object.entries(p).filter(([k])=>k!==stationId)));
 
-  useEffect(()=>{ lsSave(stations, lines); },[stations, lines]);
+  useEffect(()=>{ lsSave(stations, lines, {activeFileName, activeFileCsvName: activeFileHandle?._csvHandle?.name||null}); },[stations, lines, activeFileName, activeFileHandle]);
 
-  // On first load: find lines that had linked files and prompt to reconnect
+  // On first load: prompt to reconnect any files that were linked last session
   useEffect(()=>{
     if(!window.showOpenFilePicker) return;
-    const needReconnect = lines.filter(l => l.linkedFileName && !lineHandles[l.id]);
-    if(needReconnect.length > 0) {
-      setReconnectQueue(needReconnect);
+    const queue = [];
+    // Global workspace file
+    if(_storedActiveFileName) {
+      queue.push({
+        id: "__global__",
+        name: "(All Lines — Workspace)",
+        linkedFileName: _storedActiveFileName,
+        linkedCsvName: _storedActiveFileCsvName,
+        isGlobal: true,
+      });
     }
+    // Per-line files
+    lines.forEach(l => {
+      if(l.linkedFileName && !lineHandles[l.id]) queue.push(l);
+    });
+    if(queue.length > 0) setReconnectQueue(queue);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const flash=(msg)=>{ setSaveMsg(msg); setTimeout(()=>setSaveMsg(""),2500); };
@@ -4811,7 +4840,6 @@ export default function App() {
         onDismiss={()=>setReconnectQueue([])}
         onReconnect={async(line, idx, isLast)=>{
           try {
-            // Open JSON
             const [handle] = await window.showOpenFilePicker({
               types:[{description:"SOP Builder Save File",accept:{"application/json":[".json"]}}],
               multiple:false,
@@ -4819,7 +4847,7 @@ export default function App() {
             const perm = await handle.queryPermission({mode:"readwrite"});
             if(perm!=="granted") await handle.requestPermission({mode:"readwrite"});
 
-            // Optionally open CSV
+            // Reconnect CSV if it was linked
             let csvHandle = null;
             if(line.linkedCsvName) {
               try {
@@ -4834,8 +4862,16 @@ export default function App() {
               } catch(e){ if(e.name!=="AbortError") console.warn("CSV reconnect skipped",e); }
             }
 
-            setLineHandle(line.id, handle, handle.name, csvHandle?.name||null);
-            flash(`✓ Reconnected: ${handle.name}`);
+            if(line.isGlobal) {
+              // Reconnect the global workspace file
+              setActiveFileHandle(handle);
+              setActiveFileName(handle.name);
+              openedAtRef.current = new Date().toISOString();
+              flash(`✓ Workspace reconnected: ${handle.name}`);
+            } else {
+              setLineHandle(line.id, handle, handle.name, csvHandle?.name||null);
+              flash(`✓ Reconnected: ${handle.name}`);
+            }
           } catch(e){
             if(e.name!=="AbortError") flash("Could not reconnect file.");
           }
