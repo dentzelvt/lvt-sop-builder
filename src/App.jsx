@@ -104,12 +104,10 @@ const mkLine = () => ({
 // ─── Persistence ──────────────────────────────────────────────────────────────
 const lsSave = (s, l=[], meta={}) => {
   try {
-    const stored = JSON.parse(localStorage.getItem(SAVE_KEY)||"{}");
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       version:2, savedAt:new Date().toISOString(), stations:s, lines:l,
-      // Preserve meta fields — merge so we don't lose them on partial calls
-      activeFileName: meta.activeFileName ?? stored.activeFileName ?? null,
-      activeFileCsvName: meta.activeFileCsvName ?? stored.activeFileCsvName ?? null,
+      activeFileName: meta.activeFileName ?? null,
+      activeFileCsvName: meta.activeFileCsvName ?? null,
     }));
   } catch{}
 };
@@ -4434,8 +4432,8 @@ export default function App() {
     }
     setDeletePrompt(null);
   };
-  const [activeFileHandle, setActiveFileHandle] = useState(null); // global (All Lines) handle
-  const [activeFileName,   setActiveFileName]   = useState("");
+  const [activeFileHandle, setActiveFileHandle] = useState(null); // global (All Lines) handle — lost on refresh, reconnected via prompt
+  const [activeFileName,   setActiveFileName]   = useState(_storedActiveFileName||"");
   const [lineHandles,      setLineHandles]      = useState({});   // lineId → {handle, name}
   const [stationHandles,   setStationHandles]   = useState({});   // stationId → {handle, name}
   const loadRef = useRef();
@@ -4454,7 +4452,14 @@ export default function App() {
   };
   const setStationHandle= (stationId, handle, name) => setStationHandles(p=>handle?{...p,[stationId]:{handle,name}}:Object.fromEntries(Object.entries(p).filter(([k])=>k!==stationId)));
 
-  useEffect(()=>{ lsSave(stations, lines, {activeFileName, activeFileCsvName: activeFileHandle?._csvHandle?.name||null}); },[stations, lines, activeFileName, activeFileHandle]);
+  // Single authoritative localStorage write — useEffect ensures it always
+  // fires with the latest React state, never a stale closure
+  useEffect(()=>{
+    lsSave(stations, lines, {
+      activeFileName: activeFileName||null,
+      activeFileCsvName: activeFileHandle?._csvHandle?.name||null,
+    });
+  },[stations, lines, activeFileName, activeFileHandle]);
 
   // On first load: prompt to reconnect any files that were linked last session
   useEffect(()=>{
@@ -4578,7 +4583,6 @@ export default function App() {
             ❓ Help
           </button>
           <button onClick={async()=>{
-            lsSave(stations,lines);
             if(activeFileHandle || window.showSaveFilePicker) {
               // Conflict check: if we have an active file handle, check if it was
               // modified on disk since we opened/last-saved it
@@ -4591,7 +4595,6 @@ export default function App() {
                     fileUpdatedAt: diskState.savedAt,
                     pendingSave: async () => {
                       // Force-save, bypassing conflict check
-                      lsSave(stations,lines);
                       await smartSave(stations, lines,
                         `All_Lines_${new Date().toISOString().slice(0,10)}`,
                         activeFileHandle,
