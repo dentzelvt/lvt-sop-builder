@@ -1,8 +1,15 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 
 // ─── Version & Changelog ──────────────────────────────────────────────────────
-const APP_VERSION = "1.14.0";
+const APP_VERSION = "1.15.0";
 const CHANGELOG = [
+  { version:"1.15.0", date:"2026-07-13", notes:[
+    "Fix autosave — lsLoad moved outside App() so it runs once at module load, not on every re-render",
+    "Fix lines dropping after refresh — reversed ID lookup in applyMerge corrected",
+    "Nav bar redesigned — New, Open, Save as primary buttons; Export Save/Import/CSV/PDFs in More ▾ dropdown",
+    "Duplicate version badge and New Project button removed from nav",
+    "activeFileHandle removed from autosave useEffect deps (it mutates internally, React can't track it)",
+  ]},
   { version:"1.14.0", date:"2026-07-13", notes:[
     "Fix all 3 lines persisting on refresh — stale closure in LinesManager updLine/delLine/addLine was overwriting lines state with older snapshot",
     "Version tracker with changelog panel added to nav bar",
@@ -4391,13 +4398,15 @@ function MoreMenu({ items }) {
 }
 
 // ─── App ──────────────────────────────────────────────────────────────────────
+// Load once at module level — never re-runs on re-render
+const _initialData = lsLoad();
+
 export default function App() {
-  const _savedData = lsLoad(); // call once, share between all state initializers
-  const [stations, setStations] = useState(()=> _savedData ? _savedData.stations : []);
-  const [lines,    setLines]    = useState(()=> _savedData ? _savedData.lines    : []);
+  const [stations, setStations] = useState(()=> _initialData ? _initialData.stations : []);
+  const [lines,    setLines]    = useState(()=> _initialData ? _initialData.lines    : []);
   // Restore stored filenames so reconnect prompt shows them on next open
-  const _storedActiveFileName    = _savedData?.activeFileName    || null;
-  const _storedActiveFileCsvName = _savedData?.activeFileCsvName || null;
+  const _storedActiveFileName    = _initialData?.activeFileName    || null;
+  const _storedActiveFileCsvName = _initialData?.activeFileCsvName || null;
   const [active,   setActive]   = useState(null);
   const [tab,      setTab]      = useState("lines");
   const [preview,  setPreview]  = useState(null);
@@ -4572,14 +4581,16 @@ export default function App() {
   };
   const setStationHandle= (stationId, handle, name) => setStationHandles(p=>handle?{...p,[stationId]:{handle,name}}:Object.fromEntries(Object.entries(p).filter(([k])=>k!==stationId)));
 
-  // Single authoritative localStorage write — useEffect ensures it always
-  // fires with the latest React state, never a stale closure
+  // Autosave to localStorage on every state change
+  // activeFileHandle excluded from deps — it mutates internally (.csvHandle),
+  // React can't track mutations. We read it at call time instead.
   useEffect(()=>{
     lsSave(stations, lines, {
       activeFileName: activeFileName||null,
       activeFileCsvName: activeFileHandle?._csvHandle?.name||null,
     });
-  },[stations, lines, activeFileName, activeFileHandle]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[stations, lines, activeFileName]);
 
   // On first load: prompt to reconnect any files that were linked last session
   useEffect(()=>{
