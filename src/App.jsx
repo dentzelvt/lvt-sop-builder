@@ -1,8 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 
 // ─── Version & Changelog ──────────────────────────────────────────────────────
-const APP_VERSION = "1.15.0";
+const APP_VERSION = "1.16.0";
 const CHANGELOG = [
+  { version:"1.16.0", date:"2026-07-13", notes:[
+    "File badge moved to left of nav action buttons (before New)",
+    "Persistence advisory: auto-save to browser localStorage is unreliable on some browsers/configurations — use 💾 Save to write to a file as the primary workflow",
+  ]},
   { version:"1.15.0", date:"2026-07-13", notes:[
     "Fix autosave — lsLoad moved outside App() so it runs once at module load, not on every re-render",
     "Fix lines dropping after refresh — reversed ID lookup in applyMerge corrected",
@@ -4673,7 +4677,19 @@ export default function App() {
         </button>
         <div style={{flex:1}}/>
         <div style={{display:"flex",alignItems:"center",gap:5,padding:"8px 0"}}>
-          {/* ── Primary: New, Open, Save ── */}
+          {/* Linked file badge — before New so it's visible at left of actions */}
+          {activeFileName&&!saveMsg&&(
+            <span style={{fontSize:10,color:"#a5d6a7",display:"flex",alignItems:"center",gap:3,
+                          background:"rgba(255,255,255,0.08)",borderRadius:4,padding:"2px 7px",maxWidth:160,overflow:"hidden"}}>
+              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={activeFileName}>
+                📄 {activeFileName}
+              </span>
+              <button onClick={()=>{setActiveFileHandle(null);setActiveFileName("");openedAtRef.current=null;}}
+                style={{background:"none",border:"none",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:10,padding:0,lineHeight:1,flexShrink:0}}>✕</button>
+            </span>
+          )}
+          {saveMsg&&<span style={{fontSize:11,color:"#a5d6a7"}}>{saveMsg}</span>}
+          {/* ── Primary actions ── */}
           <button onClick={()=>setShowNewProject(true)}
             style={{background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:5,padding:"5px 10px",cursor:"pointer",fontSize:12,color:"white"}}>
             🆕 New
@@ -4734,17 +4750,6 @@ export default function App() {
                      borderRadius:5,padding:"5px 10px",cursor:"pointer",fontSize:12,color:"white",fontWeight:activeFileHandle?700:400}}>
             💾 Save{activeFileHandle?" ●":""}
           </button>
-          {/* Linked file badge */}
-          {activeFileName&&!saveMsg&&(
-            <span style={{fontSize:10,color:"#a5d6a7",display:"flex",alignItems:"center",gap:3,
-                          background:"rgba(255,255,255,0.08)",borderRadius:4,padding:"2px 7px",maxWidth:150,overflow:"hidden"}}>
-              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={activeFileName}>
-                {activeFileName}
-              </span>
-              <button onClick={()=>{setActiveFileHandle(null);setActiveFileName("");openedAtRef.current=null;}}
-                style={{background:"none",border:"none",color:"rgba(255,255,255,0.5)",cursor:"pointer",fontSize:10,padding:0,lineHeight:1,flexShrink:0}}>✕</button>
-            </span>
-          )}
           {/* ── More dropdown ── */}
           <MoreMenu items={[
             {label:"⬇️ Export Save",     action:()=>setShowExportSave(true)},
