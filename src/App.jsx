@@ -1,6 +1,69 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Version & Changelog ──────────────────────────────────────────────────────
+const APP_VERSION = "1.14.0";
+const CHANGELOG = [
+  { version:"1.14.0", date:"2026-07-13", notes:[
+    "Fix all 3 lines persisting on refresh — stale closure in LinesManager updLine/delLine/addLine was overwriting lines state with older snapshot",
+    "Version tracker with changelog panel added to nav bar",
+  ]},
+  { version:"1.13.0", date:"2026-07-13", notes:[
+    "Persist file links across sessions — activeFileName stored in localStorage",
+    "Auto-reconnect all linked files (global + per-line) on browser reopen",
+    "Fix lsSave race condition — removed read-merge-write pattern, useEffect is now single source of truth",
+  ]},
+  { version:"1.12.0", date:"2026-07-13", notes:[
+    "CSV backup comprehensively updated — adds Station Metadata, Revision Log, Task Notes, Tools & Equipment, Applicable Drawings sections",
+    "CSV restore parser rewritten RFC 4180 compliant — correctly handles multiline quoted fields (fixes phantom stations from real CSV data)",
+    "Restore from CSV tool added to nav bar — recovers full line from backup CSV when JSON is lost",
+  ]},
+  { version:"1.11.0", date:"2026-07-12", notes:[
+    "Revision log — editable date field in edit modal, delete revision button with guard against deleting last entry",
+    "Move task fixed — replaced floating dropdown with select element, deduplicated station list to current line only",
+    "Line balance station selector fixed — string coercion on IDs, select separated from label element",
+    "Line balance TAKT time input — inline with scope selector, MM:SS or seconds format",
+    "AI Analysis button — opens claude.ai with pre-built structured prompt, copies to clipboard",
+    "LVT Line Balance Analysis skill file created",
+  ]},
+  { version:"1.10.0", date:"2026-07-11", notes:[
+    "Sidebar navigator — sticky positioning, tree-only expand (no workspace side effects), navigate arrow button jumps to item",
+    "Lines/stations/tasks collapsed by default, Collapse All controls on Lines header and per-line",
+    "Sticky header — nav bar stays fixed while scrolling",
+  ]},
+  { version:"1.9.0", date:"2026-07-10", notes:[
+    "Add Line from File with conflict resolution — compares timestamps, offers Keep/Replace/Keep Both per conflicting line",
+    "File conflict detection on Save — warns when file was updated by another user since you opened it",
+    "Version check when opening a line — prompts to reload if linked file is newer",
+    "File link disconnect buttons — separate ✕ for JSON and CSV in nav bar and line header badge",
+    "Link Files modal after import — choose existing files or create new, links both JSON and CSV",
+    "Reconnect Files modal on session start — walks through all previously linked files",
+  ]},
+  { version:"1.8.0", date:"2026-07-09", notes:[
+    "Delete confirmation modal on all levels — line, station, task, step with cascade warnings",
+    "New Project button — clears workspace with confirmation",
+    "Cycle time input — plain seconds or MM:SS format, totals display as MM:SS min",
+    "PDF filename — SopID_StationDesc format",
+    "Remove from Line button removed (redundant with ✕ delete)",
+    "Custom station identifier — editable per station, defaults from line identifier",
+  ]},
+  { version:"1.7.0", date:"2026-07-08", notes:[
+    "Bold/Italic B/I toolbar in step description and key points",
+    "Multiple images per step — add unlimited, remove individually",
+    "Drawings table — two drawings per row to use full column width",
+    "CSV Open File — prompts to link companion CSV immediately after opening JSON",
+  ]},
+  { version:"1.6.0", date:"2026-07-07", notes:[
+    "SOP Builder fully rebuilt with Lines → Stations → Tasks → Steps hierarchy",
+    "Per-line 💾 Save with file link badge, global workspace Save",
+    "PDF/Preview with cover page, task pages, revision log, drawings table",
+    "Line Balance tab with bar chart, TAKT reference line, Export CSV",
+    "Import Wizard — selective import from saved files",
+    "CSV backup/restore tool",
+    "Revision log with Windchill reminder, editable entries",
+  ]},
+];
+
+
 const ICONS = {
   none:     { label: "No Icon",         emoji: "" },
   warning:  { label: "⚠️ Warning",      emoji: "⚠️" },
@@ -1094,12 +1157,12 @@ function LinesManager({ lines, stations, onLinesChange, onStationsChange, updSta
 
   const addLine = () => {
     const l = mkLine();
-    onLinesChange([...lines, l]);
+    onLinesChange(prev => [...prev, l]);
     setActiveLineId(l.id);
   };
-  const updLine = (updated) => onLinesChange(lines.map(l => l.id===updated.id ? updated : l));
+  const updLine = (updated) => onLinesChange(prev => prev.map(l => l.id===updated.id ? updated : l));
   const delLine = (id) => {
-    onLinesChange(lines.filter(l=>l.id!==id));
+    onLinesChange(prev => prev.filter(l=>l.id!==id));
     setOpenLineIds(prev=>{ const s=new Set(prev); s.delete(id); return s; }); setOpenStationIds(new Set());
   };
   const addStationToLine = (line) => {
@@ -3858,6 +3921,52 @@ function NewProjectModal({ onConfirm, onCancel }) {
   );
 }
 
+// ─── Changelog Modal ──────────────────────────────────────────────────────────
+function ChangelogModal({ onClose }) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{background:"white",borderRadius:12,padding:0,maxWidth:580,width:"95%",maxHeight:"85vh",
+                   display:"flex",flexDirection:"column",boxShadow:"0 8px 40px rgba(0,0,0,0.25)"}}>
+        {/* Header */}
+        <div style={{background:TEAL_DARK,color:"white",padding:"14px 20px",borderRadius:"12px 12px 0 0",
+                     display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:15}}>📋 LVT SOP Builder — Changelog</div>
+            <div style={{fontSize:11,opacity:0.8,marginTop:2}}>Current version: v{APP_VERSION}</div>
+          </div>
+          <button onClick={onClose}
+            style={{background:"rgba(255,255,255,0.2)",border:"none",color:"white",
+                    borderRadius:4,padding:"4px 10px",cursor:"pointer",fontSize:13}}>✕</button>
+        </div>
+
+        {/* Entries */}
+        <div style={{overflowY:"auto",flex:1,padding:"16px 20px"}}>
+          {CHANGELOG.map((entry, ei) => (
+            <div key={entry.version} style={{marginBottom:20,paddingBottom:20,
+                 borderBottom: ei < CHANGELOG.length-1 ? "1px solid #f0f0f0" : "none"}}>
+              <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:8}}>
+                <span style={{fontWeight:700,fontSize:14,color:TEAL_DARK}}>v{entry.version}</span>
+                <span style={{fontSize:11,color:"#aaa"}}>{entry.date}</span>
+                {ei===0 && (
+                  <span style={{background:TEAL,color:"white",fontSize:10,fontWeight:700,
+                                padding:"1px 7px",borderRadius:10}}>LATEST</span>
+                )}
+              </div>
+              <ul style={{margin:0,paddingLeft:18,listStyle:"disc"}}>
+                {entry.notes.map((note, ni) => (
+                  <li key={ni} style={{fontSize:12,color:"#444",marginBottom:4,lineHeight:1.6}}>
+                    {note}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── File Conflict Modal ──────────────────────────────────────────────────────
 // Shown when the file on disk is newer than when the user opened it.
 function FileConflictModal({ fileName, openedAt, fileUpdatedAt, onOverwrite, onMerge, onCancel }) {
@@ -4261,6 +4370,7 @@ export default function App() {
   const [deletePrompt,   setDeletePrompt]   = useState(null); // {type, name, ids}
   const [sidebarOpen,    setSidebarOpen]    = useState(true);
   const [showNewProject, setShowNewProject] = useState(false);
+  const [showChangelog,  setShowChangelog]  = useState(false);
   const [csvPrompt,      setCsvPrompt]      = useState(null); // {baseName, onLink, onSkip}
   const [mergePrompt,    setMergePrompt]    = useState(null); // {conflicts, nonConflicts, incomingStations}
   const [reconnectQueue,   setReconnectQueue]   = useState([]); // lines needing file reconnect
@@ -4575,6 +4685,13 @@ export default function App() {
             style={{background:"rgba(255,255,255,0.15)",border:"1px solid rgba(255,255,255,0.35)",borderRadius:5,padding:"5px 11px",cursor:"pointer",fontSize:12,color:"white"}}>
             🆕 New Project
           </button>
+          <button onClick={()=>setShowChangelog(true)}
+            title={`LVT SOP Builder v${APP_VERSION} — View changelog`}
+            style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.25)",
+                    borderRadius:5,padding:"4px 9px",cursor:"pointer",fontSize:11,color:"rgba(255,255,255,0.75)",
+                    fontFamily:"monospace",letterSpacing:"0.3px"}}>
+            v{APP_VERSION}
+          </button>
           <button onClick={()=>{
             const base=window.location.origin+window.location.pathname.replace(/\/[^/]*$/,"/");
             window.open(base+"user-guide.html","_blank","noopener");
@@ -4882,6 +4999,7 @@ export default function App() {
           else setReconnectQueue(q=>q.slice(1));
         }}
       />}
+      {showChangelog&&<ChangelogModal onClose={()=>setShowChangelog(false)}/>}
       {fileConflict&&<FileConflictModal
         fileName={activeFileName}
         openedAt={openedAtRef.current}
