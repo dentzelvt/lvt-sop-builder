@@ -1,8 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 
 // ─── Version & Changelog ──────────────────────────────────────────────────────
-const APP_VERSION = "1.16.0";
+const APP_VERSION = "1.17.0";
 const CHANGELOG = [
+  { version:"1.17.0", date:"2026-08-04", notes:[
+    "Torque specification field on steps — toggle 🔩 Add torque spec to reveal value + unit selector (ft-lbs, in-lbs, Nm, kg-cm)",
+    "Torque spec renders in PDF/preview with pink highlight block",
+    "Torque value and unit included in CSV backup export (Torque Value, Torque Unit columns)",
+  ]},
   { version:"1.16.0", date:"2026-07-13", notes:[
     "File badge moved to left of nav action buttons (before New)",
     "Persistence advisory: auto-save to browser localStorage is unreliable on some browsers/configurations — use 💾 Save to write to a file as the primary workflow",
@@ -163,6 +168,7 @@ const mkTask = (sopId, taskNo) => ({
 const mkStep = () => ({
   id:Date.now()+Math.random(), useStepNumber:true, stepNumber:"",
   description:"", keyPoints:"", icons:[], cycleTime:"", images:[], selectedTools:[], selectedDrawings:[],
+  torqueValue:"", torqueUnit:"ft-lbs",
 });
 const mkLine = () => ({
   id: Date.now()+Math.random(),
@@ -437,7 +443,7 @@ const buildCSV = (stations) => {
   sections.push("## TASKS AND STEPS");
   sections.push(row("SOP ID","Station No","Station Desc","Task No","Task ID","Task Description",
                      "Task Notes","Step No","Step Description","Key Points","Safety Icons",
-                     "Tools (Step)","Drawings (Step)","Cycle Time (min)"));
+                     "Tools (Step)","Drawings (Step)","Cycle Time (min)","Torque Value","Torque Unit"));
   stations.forEach(s => {
     if(!s.tasks.length) {
       // Station exists but no tasks — still write a row so the station is captured
@@ -457,7 +463,8 @@ const buildCSV = (stations) => {
         sections.push(row(s.sopId, s.stationNo, s.stationDesc||"",
           t.taskNo, t.taskId, t.description, t.generalNotes||"",
           st.stepNumber||si+1, st.description||"", st.keyPoints||"",
-          icons, stepTools, stepDrawings, toMinutes(st).toFixed(3)));
+          icons, stepTools, stepDrawings, toMinutes(st).toFixed(3),
+          st.torqueValue||"", st.torqueUnit||""));
       });
     });
   });
@@ -640,10 +647,11 @@ const buildPrintHTML = (station, screen=false) => {
       const num = step.useStepNumber ? `<strong>${step.stepNumber||si+1}</strong>` : "";
       const imgs = (step.images||[]).map(src=>`<div class="step-img-wrap"><img src="${src}" class="sthumb"/></div>`).join(""); const img = imgs;
       const kp  = step.keyPoints ? `<br/><em class="kp">${rich(step.keyPoints)}</em>` : "";
+      const torq = step.torqueValue ? `<br/><span class="torque">🔩 Torque: <strong>${safe(step.torqueValue)} ${safe(step.torqueUnit||"ft-lbs")}</strong></span>` : "";
       const stepRefs = refTags(step.selectedTools, step.selectedDrawings);
       return `<tr class="step-row">
         <td class="step-num">${num}</td>
-        <td class="step-desc">${ico}${rich(step.description)}${kp}${stepRefs}${img}</td>
+        <td class="step-desc">${ico}${rich(step.description)}${kp}${torq}${stepRefs}${img}</td>
         <td class="step-time">${step.cycleTime?parseTime(step.cycleTime).toFixed(2):""}</td>
       </tr>`;
     }).join("");
@@ -1684,6 +1692,36 @@ function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allSta
       <AutoTextarea value={step.keyPoints||""} onChange={e=>u("keyPoints",e.target.value)}
         placeholder="NOTE / Key point (optional)" minRows={1}
         style={{marginTop:3,background:"#fffde7",fontSize:11}}/>
+      {/* Torque specification */}
+      {step.torqueValue ? (
+        <div style={{marginTop:4,display:"flex",alignItems:"center",gap:6,background:"#fce4ec",
+                     border:"1px solid #f48fb1",borderRadius:5,padding:"5px 10px",flexWrap:"wrap"}}>
+          <span style={{fontSize:12,fontWeight:700,color:"#880e4f",flexShrink:0}}>🔩 Torque Spec:</span>
+          <input value={step.torqueValue} onChange={e=>u("torqueValue",e.target.value)}
+            placeholder="Value" type="text"
+            style={{width:72,padding:"2px 6px",border:"1px solid #f48fb1",borderRadius:4,
+                    fontSize:13,fontWeight:700,color:"#880e4f",background:"white",textAlign:"center"}}/>
+          <select value={step.torqueUnit||"ft-lbs"} onChange={e=>u("torqueUnit",e.target.value)}
+            style={{padding:"2px 5px",border:"1px solid #f48fb1",borderRadius:4,fontSize:12,
+                    background:"white",color:"#880e4f",cursor:"pointer"}}>
+            <option value="ft-lbs">ft-lbs</option>
+            <option value="in-lbs">in-lbs</option>
+            <option value="Nm">Nm</option>
+            <option value="kg-cm">kg-cm</option>
+          </select>
+          <button onClick={()=>{u("torqueValue","");}}
+            title="Remove torque spec"
+            style={{marginLeft:"auto",background:"none",border:"none",color:"#f48fb1",
+                    cursor:"pointer",fontSize:13,padding:"0 2px",lineHeight:1}}>✕</button>
+        </div>
+      ) : (
+        <button onClick={()=>u("torqueValue"," ")}
+          style={{marginTop:4,background:"none",border:"1px dashed #f48fb1",borderRadius:5,
+                  padding:"3px 10px",cursor:"pointer",fontSize:11,color:"#c2185b",display:"inline-flex",
+                  alignItems:"center",gap:4}}>
+          🔩 Add torque spec
+        </button>
+      )}
       {/* Step-level tool & drawing selectors */}
       {(stationToolList&&stationToolList.length>0||stationDrawings&&stationDrawings.filter(d=>d.drawingNo||d.description).length>0) && (
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginTop:6}}>
