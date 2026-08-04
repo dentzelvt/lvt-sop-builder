@@ -1,8 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 
 // ─── Version & Changelog ──────────────────────────────────────────────────────
-const APP_VERSION = "1.17.0";
+const APP_VERSION = "1.17.1";
 const CHANGELOG = [
+  { version:"1.17.1", date:"2026-08-04", notes:[
+    "Torque checklist auto-displayed when torque spec is set: Verify torque setting, Torque fastener, Mark with paint pen",
+    "Checklist renders in builder as visual reference and in PDF as printable checkboxes (☐)",
+  ]},
   { version:"1.17.0", date:"2026-08-04", notes:[
     "Torque specification field on steps — toggle 🔩 Add torque spec to reveal value + unit selector (ft-lbs, in-lbs, Nm, kg-cm)",
     "Torque spec renders in PDF/preview with pink highlight block",
@@ -647,11 +651,11 @@ const buildPrintHTML = (station, screen=false) => {
       const num = step.useStepNumber ? `<strong>${step.stepNumber||si+1}</strong>` : "";
       const imgs = (step.images||[]).map(src=>`<div class="step-img-wrap"><img src="${src}" class="sthumb"/></div>`).join(""); const img = imgs;
       const kp  = step.keyPoints ? `<br/><em class="kp">${rich(step.keyPoints)}</em>` : "";
-      const torq = step.torqueValue ? `<br/><span class="torque">🔩 Torque: <strong>${safe(step.torqueValue)} ${safe(step.torqueUnit||"ft-lbs")}</strong></span>` : "";
+      const torq = step.torqueValue ? `<span class="torque">🔩 Torque: <strong>${safe(step.torqueValue.trim())} ${safe(step.torqueUnit||"ft-lbs")}</strong></span><span class="torque-list"><span class="torque-list-title">Torque Checklist:</span><span class="torque-item">☐ Verify torque setting on torque tool</span><span class="torque-item">☐ Torque fastener</span><span class="torque-item">☐ Mark torqued fastener with paint pen</span></span>` : "";
       const stepRefs = refTags(step.selectedTools, step.selectedDrawings);
       return `<tr class="step-row">
         <td class="step-num">${num}</td>
-        <td class="step-desc">${ico}${rich(step.description)}${kp}${torq}${stepRefs}${img}</td>
+        <td class="step-desc">${ico}${rich(step.description)}${kp}${torq?`<br/>${torq}`:""}${stepRefs}${img}</td>
         <td class="step-time">${step.cycleTime?parseTime(step.cycleTime).toFixed(2):""}</td>
       </tr>`;
     }).join("");
@@ -754,6 +758,10 @@ const buildPrintHTML = (station, screen=false) => {
   .step-desc{vertical-align:top;padding:4px 6px;font-size:9pt;}
   .step-time{width:58px;text-align:right;vertical-align:top;padding:4px 5px;font-size:9pt;white-space:nowrap;}
   .kp{color:#00695c;font-size:8pt;font-style:italic;}
+  .torque{display:block;margin-top:3px;font-size:9pt;font-weight:700;color:#880e4f;background:#fce4ec;border:1px solid #f48fb1;border-radius:3px;padding:2px 6px;}
+  .torque-list{display:block;margin-top:2px;padding:3px 8px;background:#fce4ec;border:1px solid #f48fb1;border-radius:3px;}
+  .torque-list-title{display:block;font-size:8pt;font-weight:700;color:#ad1457;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.3px;}
+  .torque-item{display:block;font-size:9pt;color:#880e4f;padding:1px 0;}
   .thumb{max-width:220px;max-height:150px;margin:3px 3px 0 0;border:1px solid #bbb;display:inline-block;}
   .sthumb{max-width:100%;max-height:3.2in;display:block;margin-top:5px;border:1px solid #bbb;}
   .step-img-wrap{page-break-inside:avoid;}
@@ -1694,25 +1702,39 @@ function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allSta
         style={{marginTop:3,background:"#fffde7",fontSize:11}}/>
       {/* Torque specification */}
       {step.torqueValue ? (
-        <div style={{marginTop:4,display:"flex",alignItems:"center",gap:6,background:"#fce4ec",
-                     border:"1px solid #f48fb1",borderRadius:5,padding:"5px 10px",flexWrap:"wrap"}}>
-          <span style={{fontSize:12,fontWeight:700,color:"#880e4f",flexShrink:0}}>🔩 Torque Spec:</span>
-          <input value={step.torqueValue} onChange={e=>u("torqueValue",e.target.value)}
-            placeholder="Value" type="text"
-            style={{width:72,padding:"2px 6px",border:"1px solid #f48fb1",borderRadius:4,
-                    fontSize:13,fontWeight:700,color:"#880e4f",background:"white",textAlign:"center"}}/>
-          <select value={step.torqueUnit||"ft-lbs"} onChange={e=>u("torqueUnit",e.target.value)}
-            style={{padding:"2px 5px",border:"1px solid #f48fb1",borderRadius:4,fontSize:12,
-                    background:"white",color:"#880e4f",cursor:"pointer"}}>
-            <option value="ft-lbs">ft-lbs</option>
-            <option value="in-lbs">in-lbs</option>
-            <option value="Nm">Nm</option>
-            <option value="kg-cm">kg-cm</option>
-          </select>
-          <button onClick={()=>{u("torqueValue","");}}
-            title="Remove torque spec"
-            style={{marginLeft:"auto",background:"none",border:"none",color:"#f48fb1",
-                    cursor:"pointer",fontSize:13,padding:"0 2px",lineHeight:1}}>✕</button>
+        <div style={{marginTop:4,background:"#fce4ec",border:"1px solid #f48fb1",borderRadius:5,padding:"8px 10px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:8}}>
+            <span style={{fontSize:12,fontWeight:700,color:"#880e4f",flexShrink:0}}>🔩 Torque Spec:</span>
+            <input value={step.torqueValue} onChange={e=>u("torqueValue",e.target.value)}
+              placeholder="Value" type="text"
+              style={{width:72,padding:"2px 6px",border:"1px solid #f48fb1",borderRadius:4,
+                      fontSize:13,fontWeight:700,color:"#880e4f",background:"white",textAlign:"center"}}/>
+            <select value={step.torqueUnit||"ft-lbs"} onChange={e=>u("torqueUnit",e.target.value)}
+              style={{padding:"2px 5px",border:"1px solid #f48fb1",borderRadius:4,fontSize:12,
+                      background:"white",color:"#880e4f",cursor:"pointer"}}>
+              <option value="ft-lbs">ft-lbs</option>
+              <option value="in-lbs">in-lbs</option>
+              <option value="Nm">Nm</option>
+              <option value="kg-cm">kg-cm</option>
+            </select>
+            <button onClick={()=>{ u("torqueValue",""); u("torqueChecklist", undefined); }}
+              title="Remove torque spec"
+              style={{marginLeft:"auto",background:"none",border:"none",color:"#f48fb1",
+                      cursor:"pointer",fontSize:13,padding:"0 2px",lineHeight:1}}>✕</button>
+          </div>
+          {/* Torque checklist — fixed process steps shown as reference */}
+          <div style={{borderTop:"1px solid #f48fb1",paddingTop:6}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#ad1457",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.4px"}}>
+              Torque Checklist (displayed to operator)
+            </div>
+            {["Verify torque setting on torque tool","Torque fastener","Mark torqued fastener with paint pen"].map((item,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#880e4f",marginBottom:2}}>
+                <span style={{width:14,height:14,border:"1.5px solid #f48fb1",borderRadius:2,
+                              background:"white",flexShrink:0,display:"inline-block"}}/>
+                {item}
+              </div>
+            ))}
+          </div>
         </div>
       ) : (
         <button onClick={()=>u("torqueValue"," ")}
