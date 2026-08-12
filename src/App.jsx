@@ -170,7 +170,7 @@ const mkTask = (sopId, taskNo) => ({
   description:"", generalNotes:"", taskImages:[], steps:[], selectedTools:[], selectedDrawings:[],
 });
 const mkStep = () => ({
-  id:Date.now()+Math.random(), useStepNumber:true, stepNumber:"",
+  id:Date.now()+Math.random(), useStepNumber:false, stepNumber:"",
   description:"", keyPoints:"", icons:[], cycleTime:"", images:[], selectedTools:[], selectedDrawings:[],
   torqueValue:"", torqueUnit:"ft-lbs",
 });
@@ -1801,7 +1801,7 @@ function InsertStepBtn({ onInsert }) {
 function TaskEditor({ task, dragProps, onUpdate, onDelete, allStations, thisStationId, onMoveTask, stationToolList, stationDrawings, confirmDelete=null }) {
   // Derive showNums from actual step data — if any step has useStepNumber:false, treat as off
   const [showNums, setShowNums] = useState(
-    () => task.steps.length === 0 || task.steps.some(s => s.useStepNumber !== false)
+    () => task.steps.length > 0 && task.steps.some(s => s.useStepNumber === true)
   );
   const [collapsed, setCollapsed] = useState(true); // tasks start collapsed
   const u=(f,v)=>onUpdate({...task,[f]:v});
