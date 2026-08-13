@@ -1717,7 +1717,7 @@ function StepEditor({ step, idx, showNums, onChange, onDelete, dragProps, allSta
               <option value="Nm">Nm</option>
               <option value="kg-cm">kg-cm</option>
             </select>
-            <button onClick={()=>{ u("torqueValue",""); u("torqueChecklist", undefined); }}
+            <button onClick={()=>onChange({...step, torqueValue:"", torqueUnit:"ft-lbs"})}
               title="Remove torque spec"
               style={{marginLeft:"auto",background:"none",border:"none",color:"#f48fb1",
                       cursor:"pointer",fontSize:13,padding:"0 2px",lineHeight:1}}>✕</button>
