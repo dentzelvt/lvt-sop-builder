@@ -2725,12 +2725,6 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
                 {station.stationType!=="wi" && <span style={{fontSize:12,color:"#888",fontWeight:400}}> Total: {fmtTime(total)}</span>}
                 {station.stationType!=="wi" && <span style={{fontSize:11,color:"#aaa",fontWeight:400,marginLeft:8}}>⠿ drag to reorder</span>}
               </span>
-              {station.stationType!=="wi" && lineStations && lineStations.some(s=>isStationOpen(s.id)) && (
-                <button onClick={()=>collapseAllInLine({stationIds:lineStations.map(s=>s.id)})}
-                  style={{fontSize:12,padding:"3px 10px",background:"#f5f5f5",color:"#555",border:"1px solid #ddd",borderRadius:5,cursor:"pointer"}}>
-                  ⊟ Collapse Stations
-                </button>
-              )}
             </div>
 
             {station.stationType==="wi" ? (
