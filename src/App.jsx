@@ -562,90 +562,6 @@ const buildPrintHTML = (station, screen=false) => {
     .replace(/_(.+?)_/g,"<em>$1</em>");
   const today = new Date().toLocaleDateString();
 
-  // ── Work Instruction print layout ──────────────────────────────────────────
-  if(station.stationType === "wi") {
-    const wiPages = station.tasks.map(task => {
-      const layout = station.wiLayout || "stacked";
-
-      const partRow = (task.partNo||task.partDesc) ? `
-        <table class="bt" style="margin-bottom:6px;">
-          ${task.partNo ? `<tr><td class="lbl" style="width:120px">PART NO</td><td>${safe(task.partNo)}</td></tr>` : ""}
-          ${task.partDesc ? `<tr><td class="lbl">PART DESCRIPTION</td><td>${safe(task.partDesc)}</td></tr>` : ""}
-        </table>` : "";
-
-      const primaryImg = task.primaryImage
-        ? `<div style="text-align:center;margin:6px 0;"><img src="${task.primaryImage}" style="max-width:100%;max-height:3.5in;border:1px solid #bbb;"/></div>`
-        : "";
-
-      const secondaryImg = task.secondaryImage
-        ? `<img src="${task.secondaryImage}" style="max-width:2.5in;max-height:2.5in;border:1px solid #bbb;display:block;margin-bottom:6px;"/>`
-        : "";
-
-      const setupBlock = task.setupNotes ? `
-        <table class="bt" style="margin-bottom:6px;">
-          <tr><td class="lbl" colspan="2">${safe(task.setupLabel||"SETUP / POSITIONING INSTRUCTIONS")}</td></tr>
-          <tr><td colspan="2" style="padding:6px 8px;font-size:9pt;">${rich(task.setupNotes)}</td></tr>
-        </table>` : "";
-
-      const wiBlock = task.workInstructions ? `
-        <table class="bt" style="margin-bottom:6px;">
-          <tr><td class="lbl">WORK INSTRUCTIONS</td></tr>
-          <tr><td style="padding:6px 8px;font-size:9pt;">${rich(task.workInstructions)}</td></tr>
-        </table>` : "";
-
-      const customBlocks = (task.customFields||[]).map(cf => cf.type==="kv"
-        ? `<tr><td class="lbl" style="width:40%">${safe(cf.label)}</td><td>${safe(cf.value)}</td></tr>`
-        : `<tr><td class="lbl" colspan="2">${safe(cf.label)}</td></tr><tr><td colspan="2" style="padding:5px 8px;font-size:9pt;">${rich(cf.value)}</td></tr>`
-      ).join("");
-      const customTable = customBlocks ? `<table class="bt" style="margin-bottom:6px;">${customBlocks}</table>` : "";
-
-      let contentHtml = "";
-      if(layout === "twocol" && task.secondaryImage) {
-        contentHtml = `
-          <table style="width:100%;border-collapse:collapse;">
-            <tr>
-              <td style="width:40%;padding-right:10px;vertical-align:top;">${secondaryImg}</td>
-              <td style="vertical-align:top;">${setupBlock}${wiBlock}${customTable}</td>
-            </tr>
-          </table>`;
-      } else {
-        contentHtml = `${secondaryImg}${setupBlock}${wiBlock}${customTable}`;
-      }
-
-      const taskTitle = `
-        <div style="background:#00897b;color:white;padding:5px 8px;font-weight:700;font-size:11pt;margin-bottom:6px;border-radius:3px;">
-          ${safe(task.description||"Work Instruction")}
-        </div>`;
-
-      return `
-        <div class="pg">
-          ${hdr(station.sopRev)}
-          ${taskTitle}
-          ${partRow}
-          ${primaryImg}
-          ${contentHtml}
-        </div>`;
-    }).join("\n");
-
-    return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"/><title>${pdfName(station)}</title>
-<style>
-  * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; box-sizing:border-box; font-family:Arial,sans-serif; }
-  body { font-size:10pt; }
-  ${screenStyles}
-  .ht{width:100%;border-collapse:collapse;} .ht td{border:1px solid #888;padding:3px 5px;font-size:9pt;}
-  .logo{width:62px;background:#00897b !important;color:white !important;font-size:17pt;font-weight:900;text-align:center;vertical-align:middle;}
-  .title{text-align:center;font-size:15pt;font-weight:bold;background:#00897b !important;color:white !important;padding:6px;}
-  .lbl{font-weight:bold;background:#e0e0e0 !important;padding:4px 8px;}
-  .bt{width:100%;border-collapse:collapse;} .bt td{border:1px solid #aaa;padding:4px 6px;font-size:9pt;}
-</style></head>
-<body>
-  ${cover}
-  ${wiPages}
-  ${!screen ? '<scr'+'ipt>window.onload=()=>{setTimeout(()=>window.print(),400);}</scr'+'ipt>' : ""}
-</body></html>`;
-  }
-
   const hdr = (extra="") => `
     <table class="ht" cellspacing="0">
       <tr>
@@ -852,6 +768,105 @@ const buildPrintHTML = (station, screen=false) => {
     .step-row   { page-break-inside:avoid; }
     .notes-cell { page-break-inside:avoid; }
   `;
+
+
+  // ── Work Instruction print layout (placed after shared helpers are defined) ──
+  if(station.stationType === "wi") {
+    const wiPages = station.tasks.length === 0
+      ? `<div class="pg"><div style="padding:40px;text-align:center;color:#aaa;font-size:12pt;">No tasks added yet.</div></div>`
+      : station.tasks.map((task, ti) => {
+          const layout = station.wiLayout || "stacked";
+
+          const partRow = (task.partNo||task.partDesc) ? `
+            <table class="bt" style="margin-bottom:8px;">
+              ${task.partNo ? `<tr><td class="lbl" style="width:130px">PART NO</td><td>${safe(task.partNo)}</td></tr>` : ""}
+              ${task.partDesc ? `<tr><td class="lbl">PART DESCRIPTION</td><td>${safe(task.partDesc)}</td></tr>` : ""}
+            </table>` : "";
+
+          const primaryImg = task.primaryImage
+            ? `<div style="text-align:center;margin:8px 0;page-break-inside:avoid;"><img src="${task.primaryImage}" style="max-width:100%;max-height:3.8in;border:1px solid #ccc;box-shadow:0 1px 4px rgba(0,0,0,0.1);"/></div>`
+            : "";
+
+          const secondaryImg = task.secondaryImage
+            ? `<img src="${task.secondaryImage}" style="max-width:100%;max-height:2.5in;border:1px solid #ccc;display:block;margin-bottom:8px;"/>`
+            : "";
+
+          const setupBlock = task.setupNotes ? `
+            <table class="bt" style="margin-bottom:8px;">
+              <tr><td class="lbl">${safe(task.setupLabel||"SETUP / POSITIONING INSTRUCTIONS")}</td></tr>
+              <tr><td style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">${rich(task.setupNotes)}</td></tr>
+            </table>` : "";
+
+          const wiBlock = task.workInstructions ? `
+            <table class="bt" style="margin-bottom:8px;">
+              <tr><td class="lbl">WORK INSTRUCTIONS</td></tr>
+              <tr><td style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">${rich(task.workInstructions)}</td></tr>
+            </table>` : "";
+
+          const kvRows = (task.customFields||[]).filter(cf=>cf.type==="kv" && (cf.label||cf.value))
+            .map(cf=>`<tr><td class="lbl" style="width:40%">${safe(cf.label)}</td><td style="padding:4px 8px;">${safe(cf.value)}</td></tr>`)
+            .join("");
+          const kvTable = kvRows ? `<table class="bt" style="margin-bottom:8px;">${kvRows}</table>` : "";
+
+          const textBlocks = (task.customFields||[]).filter(cf=>cf.type==="text" && (cf.label||cf.value))
+            .map(cf=>`
+              <table class="bt" style="margin-bottom:8px;">
+                <tr><td class="lbl">${safe(cf.label)}</td></tr>
+                <tr><td style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">${rich(cf.value)}</td></tr>
+              </table>`)
+            .join("");
+
+          let infoHtml = "";
+          if(layout === "twocol" && task.secondaryImage) {
+            infoHtml = `
+              <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
+                <tr>
+                  <td style="width:38%;padding-right:12px;vertical-align:top;">${secondaryImg}</td>
+                  <td style="vertical-align:top;">${setupBlock}${wiBlock}${kvTable}${textBlocks}</td>
+                </tr>
+              </table>`;
+          } else {
+            infoHtml = `${secondaryImg}${setupBlock}${wiBlock}${kvTable}${textBlocks}`;
+          }
+
+          const taskHdr = `
+            <div style="background:#00897b;color:white;padding:6px 10px;font-weight:700;font-size:12pt;margin-bottom:8px;border-radius:2px;display:flex;justify-content:space-between;align-items:center;">
+              <span>${safe(task.description||"Work Instruction")}</span>
+              ${task.partNo ? `<span style="font-size:9pt;opacity:0.85;font-weight:400;">P/N: ${safe(task.partNo)}</span>` : ""}
+            </div>`;
+
+          return `
+            <div class="pg">
+              ${hdr()}
+              ${screenFtr(ti+2)}
+              ${taskHdr}
+              ${partRow}
+              ${primaryImg}
+              ${infoHtml}
+            </div>`;
+        }).join("\n");
+
+    return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><title>${pdfName(station)}</title>
+<style>
+  * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important;
+      box-sizing:border-box; font-family:Arial,sans-serif; }
+  body { font-size:10pt; }
+  ${screenStyles}
+  .ht{width:100%;border-collapse:collapse;} .ht td{border:1px solid #888;padding:3px 5px;font-size:9pt;}
+  .logo{width:62px;background:#00897b !important;color:white !important;font-size:17pt;font-weight:900;text-align:center;vertical-align:middle;}
+  .title{text-align:center;font-size:15pt;font-weight:bold;background:#00897b !important;color:white !important;padding:6px;}
+  .lbl{font-weight:bold;background:#e0e0e0 !important;padding:4px 8px;font-size:9pt;}
+  .bt{width:100%;border-collapse:collapse;} .bt td{border:1px solid #aaa;font-size:9pt;}
+  .footer{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin-top:auto;padding-top:6px;font-size:8pt;color:#555;border-top:2px solid #00897b;}
+  .f-left{text-align:left;} .f-center{text-align:center;font-weight:700;color:#00695c;font-size:9pt;} .f-right{text-align:right;}
+</style></head>
+<body>
+  ${cover}
+  ${wiPages}
+  ${!screen ? '<scr'+'ipt>window.onload=()=>{setTimeout(()=>window.print(),400);}</scr'+'ipt>' : ""}
+</body></html>`;
+  }
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><title>${pdfName(station)}</title>
