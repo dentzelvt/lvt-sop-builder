@@ -2482,6 +2482,7 @@ function WiTaskEditor({ task, onUpdate, onDelete, confirmDelete }) {
   const updImage = (i,f,v) => { const imgs=[...(task.wiImages||[])]; imgs[i]={...imgs[i],[f]:v}; u("wiImages",imgs); };
   const delImage = (i) => u("wiImages",(task.wiImages||[]).filter((_,j)=>j!==i));
   const readImg  = (file) => { const r=new FileReader(); r.onload=e=>addImage(e.target.result); r.readAsDataURL(file); };
+  const imgDrag  = useDragList(task.wiImages||[], (reordered)=>u("wiImages",reordered));
 
   const addField = (cols) => u("customFields",[...(task.customFields||[]), mkWiCustomField(cols)]);
   const updField = (i,f,v) => { const cf=[...(task.customFields||[])]; cf[i]={...cf[i],[f]:v}; u("customFields",cf); };
@@ -2546,8 +2547,14 @@ function WiTaskEditor({ task, onUpdate, onDelete, confirmDelete }) {
               <span style={{fontWeight:400,color:"#aaa",marginLeft:6}}>Full = one per row · Half = two per row · Third = three per row</span>
             </label>
             {(task.wiImages||[]).map((img,i)=>(
-              <div key={img.id} style={{border:"1px solid #e0e0e0",borderRadius:7,padding:10,marginBottom:8,background:"#fafafa"}}>
-                <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+              <div key={img.id} {...imgDrag(i)}
+                style={{border:"1px solid #e0e0e0",borderRadius:7,padding:10,marginBottom:8,
+                        background:"#fafafa",cursor:"grab"}}>
+                <div style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                  {/* Drag handle */}
+                  <div title="Drag to reorder"
+                    style={{color:"#bbb",fontSize:18,cursor:"grab",userSelect:"none",
+                            flexShrink:0,paddingTop:26,lineHeight:1}}>⠿</div>
                   <div style={{position:"relative",flexShrink:0}}>
                     <img src={img.src} alt="" style={{width:100,height:75,objectFit:"cover",borderRadius:5,border:"1px solid #ddd",display:"block"}}/>
                     <button onClick={()=>delImage(i)}
