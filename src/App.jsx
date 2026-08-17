@@ -189,7 +189,8 @@ const mkWiTask = (sopId, taskNo) => ({
   description:"",
   partNo:"",
   partDesc:"",
-  wiImages:[],   // [{id, src, caption, size:"full"|"half"|"third", align:"center"|"left"|"right"}]
+  cycleTime:"",  // secs or MM:SS
+  wiImages:[],
   workInstructions:"",
   customFields:[],
 });
@@ -913,11 +914,14 @@ const buildPrintHTML = (station, screen=false) => {
             .filter(cf=>cf.label||cf.value||cf.label2||cf.value2)
             .map(cf=>renderCustomField(cf)).join("");
 
-          const taskHdr = `
-            <div style="background:#00897b;color:white;padding:6px 10px;font-weight:700;font-size:12pt;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
-              <span>${safe(task.description||"Work Instruction")}</span>
-              ${task.partNo?`<span style="font-size:9pt;opacity:0.85;font-weight:400;">P/N: ${safe(task.partNo)}</span>`:""}
-            </div>`;
+          const taskCT = task.cycleTime ? parseTime(task.cycleTime) : 0;
+          const taskHdr = '<div style="background:#00897b;color:white;padding:6px 10px;font-weight:700;font-size:12pt;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">'
+            + '<span>' + safe(task.description||"Work Instruction") + '</span>'
+            + '<span style="font-size:9pt;opacity:0.85;font-weight:400;display:flex;gap:12px;">'
+            + (task.partNo ? '<span>P/N: ' + safe(task.partNo) + '</span>' : '')
+            + (taskCT > 0 ? '<span>⏱ ' + fmtTime(taskCT) + '</span>' : '')
+            + '</span>'
+            + '</div>';
 
           return `
             <div class="pg">
@@ -2501,8 +2505,8 @@ function WiTaskEditor({ task, onUpdate, onDelete, confirmDelete }) {
       {!collapsed && (
         <div style={{padding:16}}>
 
-          {/* Title + Part fields */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 2fr",gap:10,marginBottom:14}}>
+          {/* Title + Part + Cycle Time fields */}
+          <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr",gap:10,marginBottom:14}}>
             <div>
               <label style={{fontSize:11,color:"#555",display:"block",marginBottom:3,fontWeight:600}}>Task Title *</label>
               <input value={task.description||""} onChange={e=>u("description",e.target.value)}
@@ -2518,8 +2522,20 @@ function WiTaskEditor({ task, onUpdate, onDelete, confirmDelete }) {
             <div>
               <label style={{fontSize:11,color:"#555",display:"block",marginBottom:3,fontWeight:600}}>Part Description</label>
               <input value={task.partDesc||""} onChange={e=>u("partDesc",e.target.value)}
-                placeholder="e.g. GEN6 MMS Battery Box Back Panel"
+                placeholder="e.g. Battery Box Panel"
                 style={{width:"100%",padding:"5px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12}}/>
+            </div>
+            <div>
+              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:3,fontWeight:600}}>⏱ Cycle Time</label>
+              <input value={task.cycleTime||""} onChange={e=>u("cycleTime",e.target.value)}
+                placeholder="secs or MM:SS"
+                style={{width:"100%",padding:"5px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12,
+                        color:task.cycleTime?TEAL_DARK:"#aaa"}}/>
+              {task.cycleTime && (
+                <div style={{fontSize:10,color:TEAL_DARK,marginTop:2,fontWeight:600}}>
+                  {fmtTime(parseTime(task.cycleTime))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -2879,13 +2895,25 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
             {station.stationType==="wi" ? (
               /* ── Work Instruction Tasks ── */
               <div>
-                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"8px 12px",background:"#fff8e1",borderRadius:6,border:"1px solid #ffe082"}}>
-                  <span style={{fontSize:12,fontWeight:600,color:"#555"}}>⏱ Station Cycle Time:</span>
-                  <input value={station.wiCycleTime||""} onChange={e=>onUpdate({...station,wiCycleTime:e.target.value})}
-                    placeholder="secs or MM:SS" type="text"
-                    style={{width:110,padding:"4px 8px",border:"1px solid #ffe082",borderRadius:5,fontSize:12}}/>
-                  {station.wiCycleTime&&<span style={{fontSize:11,color:"#888"}}>{fmtTime(parseTime(station.wiCycleTime))}</span>}
-                </div>
+                {/* Station total — auto-summed from task cycle times */}
+                {(()=>{
+                  const totalSecs = station.tasks.reduce((s,t)=>s+parseTime(t.cycleTime||"0"),0);
+                  const timedCount = station.tasks.filter(t=>t.cycleTime).length;
+                  return (
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"8px 12px",
+                                 background:"#fff8e1",borderRadius:6,border:"1px solid #ffe082"}}>
+                      <span style={{fontSize:12,fontWeight:600,color:"#555"}}>⏱ Total Station Cycle Time:</span>
+                      <span style={{fontSize:14,fontWeight:700,color:totalSecs>0?TEAL_DARK:"#aaa"}}>
+                        {totalSecs>0 ? fmtTime(totalSecs) : "—"}
+                      </span>
+                      <span style={{fontSize:11,color:"#aaa",fontStyle:"italic"}}>
+                        {timedCount>0
+                          ? `${timedCount} of ${station.tasks.length} task(s) timed`
+                          : "Add cycle times to each task below"}
+                      </span>
+                    </div>
+                  );
+                })()}
                 {station.tasks.map((task,i)=>(
                   <WiTaskEditor key={task.id} task={task}
                     onUpdate={t=>updTask(i,t)}
@@ -2965,7 +2993,9 @@ function LineBalance({ stations, lines }) {
       }))
     : scopedStations.map(s=>({
         id:s.id, name:s.stationNo||s.sopId||"Station",
-        sopId:s.sopId, total: s.stationType==="wi" ? parseTime(s.wiCycleTime||"0") : sumTasks(s.tasks),
+        sopId:s.sopId, total: s.stationType==="wi"
+          ? s.tasks.reduce((acc,t)=>acc+parseTime(t.cycleTime||"0"),0)
+          : sumTasks(s.tasks),
         tasks:s.tasks.length, steps:s.stationType==="wi" ? 0 : s.tasks.reduce((n,t)=>n+t.steps.length,0),
       }));
 
