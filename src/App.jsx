@@ -783,58 +783,75 @@ const buildPrintHTML = (station, screen=false) => {
   if(station.stationType === "wi") {
     const alignCSS = {left:"left", center:"center", right:"right"};
 
-    // Group images by size for row-based layout
-    // full = one per row, half = two per row, third = three per row
+    // Build a caption line — separate function avoids nested template literals
+    const figCaption = (n, caption, align) => {
+      const a = align || "center";
+      return '<div style="font-size:8pt;color:#555;margin-top:3px;font-style:italic;text-align:' + a + ';">'
+        + '<strong>Fig. ' + n + '</strong>'
+        + (caption ? ' \u2014 ' + safe(caption) : '')
+        + '</div>';
+    };
+
+    const imgTag = (src, maxW, maxH) =>
+      '<img src="' + src + '" style="max-width:' + maxW + ';height:auto;max-height:' + maxH + ';display:inline-block;border:1px solid #ccc;"/>';
+
     const renderWiImageBlock = (images, figOffset=0) => {
       const rows = [];
       let i = 0;
       while(i < images.length) {
         const img = images[i];
         const size = img.size || "full";
+        const figN = figOffset + i + 1;
+        const align = alignCSS[img.align||"center"];
+
         if(size === "full") {
-          const align = alignCSS[img.align||"center"];
-          rows.push(`
-            <div style="text-align:${align};margin:8px 0;page-break-inside:avoid;">
-              <img src="${img.src}" style="max-width:100%;height:auto;max-height:4.5in;display:inline-block;border:1px solid #ccc;"/>
-              ${img.caption||figOffset+i?"<div style=\"font-size:8pt;color:#555;margin-top:3px;font-style:italic;text-align:"+align+";\"><strong>Fig. "+(figOffset+i+1)+"</strong>"+(img.caption?" — "+safe(img.caption):"")+"</div>":""}
-            </div>`);
+          rows.push(
+            '<div style="text-align:' + align + ';margin:8px 0;page-break-inside:avoid;">'
+            + imgTag(img.src, "100%", "4.5in")
+            + figCaption(figN, img.caption, align)
+            + '</div>'
+          );
           i++;
+
         } else if(size === "half") {
-          const pair = images.slice(i, i+2).filter(x=>x.size==="half");
+          const pair = images.slice(i, i+2).filter(x=>(x.size||"full")==="half");
           if(pair.length === 2) {
-            rows.push(`
-              <table style="width:100%;border-collapse:collapse;margin:8px 0;page-break-inside:avoid;">
-                <tr>
-                  ${pair.map((im,pi)=>`
-                  <td style="width:50%;padding:0 ${pi===0?"6px 0 0":"0 0 6px"};vertical-align:top;text-align:center;">
-                    <img src="${im.src}" style="max-width:100%;height:auto;max-height:3in;border:1px solid #ccc;display:inline-block;"/>
-                    ${im.caption||true?"<div style=\"font-size:8pt;color:#555;margin-top:3px;font-style:italic;text-align:center;\"><strong>Fig. "+(figOffset+i+pi+1)+"</strong>"+(im.caption?" — "+safe(im.caption):"")+"</div>":""}
-                  </td>`).join("")}
-                </tr>
-              </table>`);
+            const cells = pair.map((im, pi) =>
+              '<td style="width:50%;padding:0 4px;vertical-align:top;text-align:center;">'
+              + imgTag(im.src, "100%", "3in")
+              + figCaption(figOffset + i + pi + 1, im.caption, "center")
+              + '</td>'
+            ).join("");
+            rows.push(
+              '<table style="width:100%;border-collapse:collapse;margin:8px 0;page-break-inside:avoid;"><tr>'
+              + cells + '</tr></table>'
+            );
             i += 2;
           } else {
-            // Odd half — render as full
-            rows.push(`
-              <div style="text-align:center;margin:8px 0;page-break-inside:avoid;">
-                <img src="${img.src}" style="max-width:50%;height:auto;max-height:3in;display:inline-block;border:1px solid #ccc;"/>
-                ${img.caption?"<div style=\"font-size:8pt;color:#555;margin-top:3px;font-style:italic;text-align:center;\"><strong>Fig. "+(figOffset+i+1)+"</strong> — "+safe(img.caption)+"</div>":""}
-              </div>`);
+            // Lone half — render at 50% centered
+            rows.push(
+              '<div style="text-align:center;margin:8px 0;page-break-inside:avoid;">'
+              + imgTag(img.src, "50%", "3in")
+              + figCaption(figN, img.caption, "center")
+              + '</div>'
+            );
             i++;
           }
+
         } else { // third
-          const trio = images.slice(i, i+3).filter(x=>x.size==="third");
+          const trio = images.slice(i, i+3).filter(x=>(x.size||"full")==="third");
           const cols = Math.min(trio.length, 3);
-          rows.push(`
-            <table style="width:100%;border-collapse:collapse;margin:8px 0;page-break-inside:avoid;">
-              <tr>
-                ${trio.map((im,pi)=>`
-                <td style="width:${100/cols}%;padding:0 4px;vertical-align:top;text-align:center;">
-                  <img src="${im.src}" style="max-width:100%;height:auto;max-height:2.5in;border:1px solid #ccc;display:inline-block;"/>
-                  <div style="font-size:8pt;color:#555;margin-top:3px;font-style:italic;text-align:center;"><strong>Fig. ${figOffset+i+pi+1}</strong>${im.caption?" — "+safe(im.caption):""}</div>
-                </td>`).join("")}
-              </tr>
-            </table>`);
+          const pct = Math.floor(100/cols) + "%";
+          const cells = trio.map((im, pi) =>
+            '<td style="width:' + pct + ';padding:0 4px;vertical-align:top;text-align:center;">'
+            + imgTag(im.src, "100%", "2.5in")
+            + figCaption(figOffset + i + pi + 1, im.caption, "center")
+            + '</td>'
+          ).join("");
+          rows.push(
+            '<table style="width:100%;border-collapse:collapse;margin:8px 0;page-break-inside:avoid;"><tr>'
+            + cells + '</tr></table>'
+          );
           i += cols;
         }
       }
