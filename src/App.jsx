@@ -136,7 +136,7 @@ const parseTime = (val) => {
 };
 const toMinutes = (st) => parseTime(st.cycleTime);
 const sumSteps = (steps) => steps.reduce((s,st) => s+toMinutes(st), 0);
-const sumTasks  = (tasks) => tasks.reduce((s,t)  => s+sumSteps(t.steps), 0);
+const sumTasks  = (tasks) => tasks.reduce((s,t)  => s+sumSteps(t.steps||[]), 0);
 const reindex   = (tasks, sopId) =>
   tasks.map((t,i) => ({ ...t, taskNo:i+1, taskId:genTaskId(sopId,i+1) }));
 
@@ -245,13 +245,16 @@ const migrateStation = (s) => {
   }
   // Seed toolList if missing
   if (!s.toolList) s = { ...s, toolList: [] };
+  // Seed stationType if missing (stations saved before WI feature)
+  if (!s.stationType) s = { ...s, stationType: "standard" };
   // Migrate step.image (single) → step.images (array)
+  // Guard against WI tasks which have no steps array
   s = { ...s, tasks: s.tasks.map(t => ({
     ...t,
-    steps: t.steps.map(st => {
+    steps: Array.isArray(t.steps) ? t.steps.map(st => {
       if (st.images) return st; // already migrated
       return { ...st, images: st.image ? [st.image] : [], image: undefined };
-    })
+    }) : [],
   }))};
   return s;
 };
