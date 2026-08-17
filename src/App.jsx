@@ -2719,14 +2719,23 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
 
           {/* Tasks */}
           <div style={{borderTop:`2px solid ${TEAL_LIGHT}`,paddingTop:12}}>
-            <div style={{fontWeight:700,fontSize:14,color:TEAL_DARK,marginBottom:8}}>
-              Tasks ({station.tasks.length}) <span style={{fontSize:12,color:"#888",fontWeight:400}}>Total: {fmtTime(total)}</span>
-              <span style={{fontSize:11,color:"#aaa",fontWeight:400,marginLeft:8}}>⠿ drag to reorder</span>
+            <div style={{fontWeight:700,fontSize:14,color:TEAL_DARK,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span>
+                {station.stationType==="wi" ? "Work Instructions" : "Tasks"} ({station.tasks.length})
+                {station.stationType!=="wi" && <span style={{fontSize:12,color:"#888",fontWeight:400}}> Total: {fmtTime(total)}</span>}
+                {station.stationType!=="wi" && <span style={{fontSize:11,color:"#aaa",fontWeight:400,marginLeft:8}}>⠿ drag to reorder</span>}
+              </span>
+              {station.stationType!=="wi" && lineStations && lineStations.some(s=>isStationOpen(s.id)) && (
+                <button onClick={()=>collapseAllInLine({stationIds:lineStations.map(s=>s.id)})}
+                  style={{fontSize:12,padding:"3px 10px",background:"#f5f5f5",color:"#555",border:"1px solid #ddd",borderRadius:5,cursor:"pointer"}}>
+                  ⊟ Collapse Stations
+                </button>
+              )}
             </div>
+
             {station.stationType==="wi" ? (
               /* ── Work Instruction Tasks ── */
               <div>
-                {/* WI cycle time */}
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"8px 12px",background:"#fff8e1",borderRadius:6,border:"1px solid #ffe082"}}>
                   <span style={{fontSize:12,fontWeight:600,color:"#555"}}>⏱ Station Cycle Time:</span>
                   <input value={station.wiCycleTime||""} onChange={e=>onUpdate({...station,wiCycleTime:e.target.value})}
@@ -2734,40 +2743,39 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
                     style={{width:110,padding:"4px 8px",border:"1px solid #ffe082",borderRadius:5,fontSize:12}}/>
                   {station.wiCycleTime&&<span style={{fontSize:11,color:"#888"}}>{fmtTime(parseTime(station.wiCycleTime))}</span>}
                 </div>
-                {/* WI task cards */}
                 {station.tasks.map((task,i)=>(
                   <WiTaskEditor key={task.id} task={task}
                     onUpdate={t=>updTask(i,t)}
                     onDelete={()=>{ if(confirmDelete) confirmDelete("task",task.description||"this task",{stationId:station.id,taskIdx:i}); else delTask(i); }}
                     confirmDelete={confirmDelete}/>
                 ))}
-                <button onClick={()=>{
-                  const no=station.tasks.length+1;
-                  u("tasks",[...station.tasks, mkWiTask(station.sopId,no)]);
-                }} style={{background:TEAL_LIGHT,border:`2px dashed ${TEAL}`,borderRadius:8,padding:"10px 18px",
-                           cursor:"pointer",fontSize:13,width:"100%",color:TEAL_DARK,fontWeight:600,marginTop:6}}>
+                <button onClick={()=>u("tasks",[...station.tasks, mkWiTask(station.sopId, station.tasks.length+1)])}
+                  style={{background:TEAL_LIGHT,border:`2px dashed ${TEAL}`,borderRadius:8,padding:"10px 18px",
+                          cursor:"pointer",fontSize:13,width:"100%",color:TEAL_DARK,fontWeight:600,marginTop:6}}>
                   + Add Task
                 </button>
               </div>
             ) : (
               /* ── Standard Tasks ── */
               <div>
-                dragProps={taskDrag(i)}
-                onUpdate={(t,extra)=>updTask(i,t,extra)}
-                onDelete={()=>{ if(confirmDelete){ const sid=station.id; confirmDelete("task",task.description||"this task",{stationId:sid,taskIdx:i}); } else delTask(i); }}
-                allStations={allStations}
-                thisStationId={station.id}
-                onMoveTask={(targetId)=>moveTask(i,targetId)}
-                stationToolList={station.toolList||[]}
-                stationDrawings={station.drawings||[]}
-                confirmDelete={confirmDelete}
-              />
-            ))}
-            <button onClick={addTask} style={{background:TEAL_LIGHT,border:`2px dashed ${TEAL}`,borderRadius:8,padding:"10px 18px",cursor:"pointer",fontSize:13,width:"100%",color:TEAL_DARK,fontWeight:600,marginTop:6}}>
-              + Add Task
-            </button>
-          </div>
-            )} {/* end standard/WI conditional */}
+                {station.tasks.map((task,i)=>(
+                  <TaskEditor key={task.id} task={task}
+                    dragProps={taskDrag(i)}
+                    onUpdate={(t,extra)=>updTask(i,t,extra)}
+                    onDelete={()=>{ if(confirmDelete){ confirmDelete("task",task.description||"this task",{stationId:station.id,taskIdx:i}); } else delTask(i); }}
+                    allStations={allStations}
+                    thisStationId={station.id}
+                    onMoveTask={(targetId)=>moveTask(i,targetId)}
+                    stationToolList={station.toolList||[]}
+                    stationDrawings={station.drawings||[]}
+                    confirmDelete={confirmDelete}
+                  />
+                ))}
+                <button onClick={addTask} style={{background:TEAL_LIGHT,border:`2px dashed ${TEAL}`,borderRadius:8,padding:"10px 18px",cursor:"pointer",fontSize:13,width:"100%",color:TEAL_DARK,fontWeight:600,marginTop:6}}>
+                  + Add Task
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
