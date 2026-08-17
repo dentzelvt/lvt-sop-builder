@@ -2964,6 +2964,462 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
   );
 }
 
+// ─── Analysis Tab ─────────────────────────────────────────────────────────────
+function AnalysisTab({ stations, lines }) {
+  const [sel,     setSel]     = useState({ lines:{}, stations:{}, tasks:{} });
+  const [taktRaw, setTaktRaw] = useState("");
+  const [staleDay,setStaleDay]= useState(90);
+  const [results, setResults] = useState(null);
+  const [openSec, setOpenSec] = useState({time:true, revision:true});
+
+  const taktMin = taktRaw.trim() ? parseTime(taktRaw) : null;
+
+  // ── Selection helpers ───────────────────────────────────────────────────────
+  const toggleLine = (lid) => {
+    const on = !sel.lines[lid];
+    const ns = {...sel};
+    ns.lines = {...ns.lines, [lid]: on};
+    const line = lines.find(l=>l.id===lid);
+    if(line) {
+      const lineSts = line.stationIds.map(id=>stations.find(s=>s.id===id)).filter(Boolean);
+      lineSts.forEach(s=>{
+        ns.stations = {...ns.stations, [s.id]: on};
+        (s.tasks||[]).forEach(t=>{ ns.tasks = {...ns.tasks, [s.id+"::"+t.id]: on}; });
+      });
+    }
+    setSel(ns);
+  };
+
+  const toggleStation = (sid, lid) => {
+    const on = !sel.stations[sid];
+    const ns = {...sel};
+    ns.stations = {...ns.stations, [sid]: on};
+    const s = stations.find(st=>st.id===sid);
+    if(s) (s.tasks||[]).forEach(t=>{ ns.tasks = {...ns.tasks, [sid+"::"+t.id]: on}; });
+    // update parent line: on if any station on
+    if(lid) {
+      const line = lines.find(l=>l.id===lid);
+      if(line) {
+        const anySt = line.stationIds.some(id=> id===sid ? on : !!ns.stations[id]);
+        ns.lines = {...ns.lines, [lid]: anySt};
+      }
+    }
+    setSel(ns);
+  };
+
+  const toggleTask = (sid, tid, lid) => {
+    const key = sid+"::"+tid;
+    const on = !sel.tasks[key];
+    const ns = {...sel};
+    ns.tasks = {...ns.tasks, [key]: on};
+    // update parent station
+    const s = stations.find(st=>st.id===sid);
+    if(s) { const anyT = (s.tasks||[]).some(t=> t.id===tid ? on : !!ns.tasks[sid+"::"+t.id]); ns.stations={...ns.stations,[sid]:anyT}; }
+    if(lid) { const line=lines.find(l=>l.id===lid); if(line){ const anySt=line.stationIds.some(id=>!!ns.stations[id]); ns.lines={...ns.lines,[lid]:anySt}; } }
+    setSel(ns);
+  };
+
+  const selectAll = () => {
+    const ns = {lines:{}, stations:{}, tasks:{}};
+    lines.forEach(l=>{ ns.lines[l.id]=true; });
+    stations.forEach(s=>{ ns.stations[s.id]=true; (s.tasks||[]).forEach(t=>{ ns.tasks[s.id+"::"+t.id]=true; }); });
+    setSel(ns);
+  };
+
+  const selectNone = () => setSel({lines:{},stations:{},tasks:{}});
+
+  // Count selected
+  const selCount = Object.values(sel.stations).filter(Boolean).length;
+
+  // ── Run Analysis ────────────────────────────────────────────────────────────
+  const runAnalysis = () => {
+    const selStations = stations.filter(s=>sel.stations[s.id]);
+    if(!selStations.length){ alert("Select at least one station to analyze."); return; }
+
+    // ── Time & Throughput ───────────────────────────────────────────────────
+    const stationTimes = selStations.map(s => {
+      const selectedTasks = (s.tasks||[]).filter(t=>sel.tasks[s.id+"::"+t.id]);
+      const allTaskSel = (s.tasks||[]).length > 0 && (s.tasks||[]).every(t=>sel.tasks[s.id+"::"+t.id]);
+      const ct = s.stationType==="wi"
+        ? selectedTasks.reduce((acc,t)=>acc+parseTime(t.cycleTime||"0"),0)
+        : sumTasks(selectedTasks);
+      return { station:s, ct, selectedTasks, allTaskSel };
+    });
+
+    const totalCT = stationTimes.reduce((s,x)=>s+x.ct, 0);
+    const maxSt   = stationTimes.reduce((a,b)=>b.ct>a.ct?b:a, stationTimes[0]);
+    const minSt   = stationTimes.filter(x=>x.ct>0).reduce((a,b)=>b.ct<a.ct?b:a, stationTimes.find(x=>x.ct>0)||stationTimes[0]);
+    const avgCT   = stationTimes.length ? totalCT/stationTimes.length : 0;
+    const efficiency = taktMin && taktMin>0 ? Math.min(100,(avgCT/taktMin)*100) : null;
+    const balanceLoss = taktMin && taktMin>0 ? selStations.length*taktMin - totalCT : null;
+    const unitsPerShift = taktMin && taktMin>0 ? Math.floor(480/taktMin) : null; // 480 min = 8hr shift
+
+    // ── Revision Health ─────────────────────────────────────────────────────
+    const now = new Date();
+    const allRevEntries = [];
+    const authorMap = {};
+    const staleStations = [];
+    const revAOnly = [];
+
+    selStations.forEach(s => {
+      const entries = s.revisionEntries||[];
+      if(entries.length===1 && (entries[0].rev||"").toUpperCase()==="A") revAOnly.push(s);
+
+      // Find most recent revision date
+      let latestDate = null;
+      entries.forEach(e => {
+        if(e.date) {
+          const d = new Date(e.date);
+          if(!isNaN(d)) {
+            if(!latestDate || d>latestDate) latestDate=d;
+            const author = (e.by||"Unknown").trim();
+            if(!authorMap[author]) authorMap[author]={count:0,stations:[]};
+            authorMap[author].count++;
+            if(!authorMap[author].stations.find(x=>x.id===s.id)) authorMap[author].stations.push(s);
+            allRevEntries.push({station:s, entry:e, date:d});
+          }
+        }
+      });
+
+      if(latestDate) {
+        const daysSince = Math.floor((now-latestDate)/(1000*60*60*24));
+        if(daysSince>staleDay) staleStations.push({station:s, daysSince, latestDate});
+      } else {
+        staleStations.push({station:s, daysSince:null, latestDate:null});
+      }
+    });
+
+    // Sort activity feed newest first
+    allRevEntries.sort((a,b)=>b.date-a.date);
+    const recentActivity = allRevEntries.slice(0,20);
+
+    staleStations.sort((a,b)=>(b.daysSince||9999)-(a.daysSince||9999));
+
+    setResults({
+      selStations, stationTimes, totalCT, maxSt, minSt, avgCT,
+      efficiency, balanceLoss, unitsPerShift,
+      staleStations, revAOnly, recentActivity, authorMap,
+      runAt: new Date().toLocaleString(),
+    });
+  };
+
+  const toggleSec = (k) => setOpenSec(p=>({...p,[k]:!p[k]}));
+
+  // ── Metric card ─────────────────────────────────────────────────────────────
+  const Card = ({label, value, sub, color="#00695c", warn=false}) => (
+    <div style={{background:warn?"#fff8e1":"#f8fffe",border:`1px solid ${warn?"#ffe082":"#b2dfdb"}`,
+                 borderRadius:10,padding:"14px 18px",minWidth:140,flex:"1 1 140px"}}>
+      <div style={{fontSize:11,color:"#888",fontWeight:600,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.4px"}}>{label}</div>
+      <div style={{fontSize:22,fontWeight:800,color:warn?"#e65100":color,lineHeight:1.1}}>{value}</div>
+      {sub&&<div style={{fontSize:11,color:"#aaa",marginTop:4}}>{sub}</div>}
+    </div>
+  );
+
+  const SectionHdr = ({label, k, count}) => (
+    <div onClick={()=>toggleSec(k)}
+      style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",padding:"10px 0",
+              borderBottom:`2px solid ${TEAL_LIGHT}`,marginBottom:12,userSelect:"none"}}>
+      <span style={{color:TEAL,fontSize:13}}>{openSec[k]?"▼":"▶"}</span>
+      <span style={{fontWeight:700,fontSize:15,color:TEAL_DARK}}>{label}</span>
+      {count!==undefined&&<span style={{fontSize:11,color:"#aaa",marginLeft:4}}>({count})</span>}
+    </div>
+  );
+
+  return (
+    <div style={{display:"flex",gap:20,alignItems:"flex-start"}}>
+
+      {/* ── Left: Selection Tree ─────────────────────────────────────────── */}
+      <div style={{width:260,flexShrink:0,background:"#f8fffe",border:`1px solid ${TEAL_LIGHT}`,
+                   borderRadius:10,padding:14,position:"sticky",top:70,maxHeight:"calc(100vh - 120px)",
+                   overflowY:"auto"}}>
+        <div style={{fontWeight:700,fontSize:13,color:TEAL_DARK,marginBottom:8}}>Select Scope</div>
+        <div style={{display:"flex",gap:6,marginBottom:10}}>
+          <button onClick={selectAll}
+            style={{flex:1,fontSize:11,padding:"4px 0",background:TEAL_LIGHT,border:`1px solid ${TEAL}`,
+                    borderRadius:5,cursor:"pointer",color:TEAL_DARK,fontWeight:600}}>All</button>
+          <button onClick={selectNone}
+            style={{flex:1,fontSize:11,padding:"4px 0",background:"#f5f5f5",border:"1px solid #ddd",
+                    borderRadius:5,cursor:"pointer",color:"#555"}}>None</button>
+        </div>
+        <div style={{fontSize:11,color:"#aaa",marginBottom:8}}>{selCount} station(s) selected</div>
+
+        {lines.length===0 && <div style={{fontSize:12,color:"#aaa",fontStyle:"italic"}}>No lines in workspace</div>}
+        {lines.map(line=>{
+          const lineSts = line.stationIds.map(id=>stations.find(s=>s.id===id)).filter(Boolean);
+          const lineChecked = !!sel.lines[line.id];
+          const linePartial = !lineChecked && lineSts.some(s=>sel.stations[s.id]);
+          return (
+            <div key={line.id} style={{marginBottom:8}}>
+              {/* Line row */}
+              <label style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",
+                             padding:"4px 6px",borderRadius:5,background:lineChecked?"#e0f2f1":"transparent",
+                             fontWeight:700,fontSize:12,color:TEAL_DARK}}>
+                <input type="checkbox" checked={lineChecked} ref={el=>{if(el)el.indeterminate=linePartial;}}
+                  onChange={()=>toggleLine(line.id)} style={{accentColor:TEAL,flexShrink:0}}/>
+                🏗️ {line.name||"(unnamed)"}
+              </label>
+              {/* Stations */}
+              {lineSts.map(s=>{
+                const stChecked = !!sel.stations[s.id];
+                const stPartial = !stChecked && (s.tasks||[]).some(t=>sel.tasks[s.id+"::"+t.id]);
+                return (
+                  <div key={s.id} style={{marginLeft:16}}>
+                    <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",
+                                   padding:"3px 6px",borderRadius:5,background:stChecked?"#e0f2f1":"transparent",
+                                   fontSize:11,color:"#444"}}>
+                      <input type="checkbox" checked={stChecked} ref={el=>{if(el)el.indeterminate=stPartial;}}
+                        onChange={()=>toggleStation(s.id,line.id)} style={{accentColor:TEAL,flexShrink:0}}/>
+                      {s.stationNo||s.sopId||"Station"} {s.stationDesc?`— ${s.stationDesc}`:""}
+                      {s.stationType==="wi"&&<span style={{fontSize:9,background:"#fff3e0",color:"#e65100",
+                        border:"1px solid #ffb74d",borderRadius:3,padding:"0 4px",marginLeft:3}}>WI</span>}
+                    </label>
+                    {/* Tasks */}
+                    {(s.tasks||[]).map(t=>{
+                      const tKey = s.id+"::"+t.id;
+                      return (
+                        <label key={t.id} style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",
+                                       marginLeft:16,padding:"2px 6px",borderRadius:5,fontSize:10,color:"#666",
+                                       background:sel.tasks[tKey]?"#e0f2f1":"transparent"}}>
+                          <input type="checkbox" checked={!!sel.tasks[tKey]}
+                            onChange={()=>toggleTask(s.id,t.id,line.id)} style={{accentColor:TEAL,flexShrink:0}}/>
+                          {t.description||t.taskId||`Task ${t.taskNo}`}
+                        </label>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Right: Controls + Results ────────────────────────────────────── */}
+      <div style={{flex:1,minWidth:0}}>
+
+        {/* Controls bar */}
+        <div style={{background:"#f9f9f9",border:"1px solid #e0e0e0",borderRadius:8,
+                     padding:"12px 16px",marginBottom:20,display:"flex",gap:12,
+                     alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}>
+            <span style={{fontWeight:700,color:"#c62828"}}>⏱ TAKT (optional):</span>
+            <input value={taktRaw} onChange={e=>setTaktRaw(e.target.value)}
+              placeholder="MM:SS or secs"
+              style={{width:110,padding:"4px 8px",border:`2px solid ${taktMin?"#c62828":"#ccc"}`,
+                      borderRadius:5,fontSize:12,color:taktMin?"#c62828":"#444",fontWeight:taktMin?700:400}}/>
+            {taktMin&&<button onClick={()=>setTaktRaw("")}
+              style={{background:"none",border:"none",color:"#bbb",cursor:"pointer",fontSize:12}}>✕</button>}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}>
+            <span style={{fontWeight:700,color:"#555"}}>Stale after:</span>
+            <input type="number" value={staleDay} onChange={e=>setStaleDay(parseInt(e.target.value)||90)}
+              style={{width:65,padding:"4px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12}}/>
+            <span style={{color:"#888"}}>days</span>
+          </div>
+          <button onClick={runAnalysis}
+            style={{background:TEAL,color:"white",border:"none",borderRadius:7,padding:"8px 24px",
+                    cursor:"pointer",fontSize:13,fontWeight:700,marginLeft:"auto",
+                    boxShadow:"0 2px 6px rgba(0,137,123,0.3)"}}>
+            ▶ Run Analysis
+          </button>
+        </div>
+
+        {!results && (
+          <div style={{textAlign:"center",padding:"60px 20px",color:"#bbb"}}>
+            <div style={{fontSize:48,marginBottom:12}}>📈</div>
+            <div style={{fontSize:15,fontWeight:600,marginBottom:6}}>Select scope and run analysis</div>
+            <div style={{fontSize:12}}>Use the tree on the left to pick lines, stations, or individual tasks</div>
+          </div>
+        )}
+
+        {results && (<>
+          <div style={{fontSize:11,color:"#aaa",marginBottom:16,textAlign:"right"}}>
+            Ran {results.runAt} · {results.selStations.length} station(s)
+            {taktMin&&<span style={{color:"#c62828",fontWeight:700}}> · TAKT: {fmtTime(taktMin)}</span>}
+          </div>
+
+          {/* ── Time & Throughput ──────────────────────────────────────── */}
+          <div style={{marginBottom:24}}>
+            <SectionHdr label="⏱ Time & Throughput" k="time"/>
+            {openSec.time && (<>
+              {/* Summary cards */}
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+                <Card label="Total Cycle Time" value={fmtTime(results.totalCT)}
+                  sub={`across ${results.selStations.length} stations`}/>
+                <Card label="Avg per Station"  value={fmtTime(results.avgCT)}/>
+                <Card label="Bottleneck"
+                  value={results.maxSt?.station ? (results.maxSt.station.stationNo||"—") : "—"}
+                  sub={fmtTime(results.maxSt?.ct)} warn={taktMin&&results.maxSt?.ct>taktMin}/>
+                {taktMin&&<Card label="Line Efficiency"
+                  value={results.efficiency!==null?Math.round(results.efficiency)+"%":"—"}
+                  sub={results.efficiency>=85?"✓ Good":results.efficiency>=70?"⚠ Fair":"✗ Poor"}
+                  warn={results.efficiency<70}/>}
+                {taktMin&&<Card label="Balance Loss"
+                  value={results.balanceLoss>0?fmtTime(results.balanceLoss):"0"}
+                  sub="idle capacity" warn={results.balanceLoss>results.totalCT*0.2}/>}
+                {taktMin&&<Card label="Units / 8hr Shift"
+                  value={results.unitsPerShift||"—"}
+                  sub={`at TAKT ${fmtTime(taktMin)}`}/>}
+              </div>
+
+              {/* Per-station table */}
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead>
+                  <tr style={{background:TEAL,color:"white"}}>
+                    <th style={{padding:"6px 10px",textAlign:"left"}}>Station</th>
+                    <th style={{padding:"6px 10px",textAlign:"left"}}>Description</th>
+                    <th style={{padding:"6px 10px",textAlign:"center"}}>Tasks</th>
+                    <th style={{padding:"6px 10px",textAlign:"right"}}>Cycle Time</th>
+                    {taktMin&&<th style={{padding:"6px 10px",textAlign:"right"}}>vs TAKT</th>}
+                    {taktMin&&<th style={{padding:"6px 10px",textAlign:"center"}}>Status</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.stationTimes.map(({station:s,ct,selectedTasks},i)=>{
+                    const overTakt = taktMin && ct>taktMin;
+                    const nearTakt = taktMin && ct>taktMin*0.9;
+                    const rowBg = i%2===0?"white":"#f9f9f9";
+                    return (
+                      <tr key={s.id} style={{background:rowBg,borderBottom:"1px solid #eee"}}>
+                        <td style={{padding:"6px 10px",fontWeight:700,color:TEAL_DARK}}>{s.stationNo||s.sopId}</td>
+                        <td style={{padding:"6px 10px",color:"#555"}}>{s.stationDesc||"—"}</td>
+                        <td style={{padding:"6px 10px",textAlign:"center",color:"#888"}}>{selectedTasks.length}</td>
+                        <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600,
+                                    color:overTakt?"#c62828":nearTakt?"#e65100":TEAL_DARK}}>
+                          {ct>0?fmtTime(ct):"—"}
+                        </td>
+                        {taktMin&&<td style={{padding:"6px 10px",textAlign:"right",
+                            color:overTakt?"#c62828":"#2e7d32",fontWeight:600}}>
+                          {ct>0?(overTakt?"+":"")+fmtTime(Math.abs(ct-taktMin))+(overTakt?" over":" under"):"—"}
+                        </td>}
+                        {taktMin&&<td style={{padding:"6px 10px",textAlign:"center"}}>
+                          {ct===0?"—":overTakt?"🔴 Over":nearTakt?"⚠️ Near":"✅ OK"}
+                        </td>}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </>)}
+          </div>
+
+          {/* ── Revision Health ────────────────────────────────────────── */}
+          <div style={{marginBottom:24}}>
+            <SectionHdr label="📋 Revision Health" k="revision"/>
+            {openSec.revision && (<>
+
+              {/* Summary cards */}
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+                <Card label={`Stale (>${staleDay}d)`}
+                  value={results.staleStations.length}
+                  sub="stations not recently revised"
+                  warn={results.staleStations.length>0}/>
+                <Card label="Rev A Only"
+                  value={results.revAOnly.length}
+                  sub="never revised"
+                  warn={results.revAOnly.length>0}/>
+                <Card label="Authors" value={Object.keys(results.authorMap).length}
+                  sub="unique contributors"/>
+                <Card label="Recent Activity" value={results.recentActivity.length}
+                  sub={`entries across selection`}/>
+              </div>
+
+              {/* Staleness table */}
+              {results.staleStations.length>0&&(
+                <div style={{marginBottom:16}}>
+                  <div style={{fontWeight:600,fontSize:12,color:"#c62828",marginBottom:6}}>
+                    ⚠️ Stale Stations (last revised &gt;{staleDay} days ago or never)
+                  </div>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{background:"#ffebee"}}>
+                        <th style={{padding:"5px 10px",textAlign:"left"}}>Station</th>
+                        <th style={{padding:"5px 10px",textAlign:"left"}}>Description</th>
+                        <th style={{padding:"5px 10px",textAlign:"right"}}>Last Revised</th>
+                        <th style={{padding:"5px 10px",textAlign:"right"}}>Days Since</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {results.staleStations.map(({station:s,daysSince,latestDate},i)=>(
+                        <tr key={s.id} style={{background:i%2===0?"white":"#fff8f8",borderBottom:"1px solid #fce4e4"}}>
+                          <td style={{padding:"5px 10px",fontWeight:700,color:"#c62828"}}>{s.stationNo||s.sopId}</td>
+                          <td style={{padding:"5px 10px",color:"#555"}}>{s.stationDesc||"—"}</td>
+                          <td style={{padding:"5px 10px",textAlign:"right",color:"#888"}}>
+                            {latestDate?latestDate.toLocaleDateString():"Never"}
+                          </td>
+                          <td style={{padding:"5px 10px",textAlign:"right",fontWeight:700,color:"#c62828"}}>
+                            {daysSince!==null?daysSince+"d":"—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Activity feed */}
+              {results.recentActivity.length>0&&(
+                <div style={{marginBottom:16}}>
+                  <div style={{fontWeight:600,fontSize:12,color:TEAL_DARK,marginBottom:6}}>
+                    🕐 Recent Revision Activity (latest 20)
+                  </div>
+                  <div style={{border:"1px solid #e0e0e0",borderRadius:8,overflow:"hidden"}}>
+                    {results.recentActivity.map(({station:s,entry:e,date},i)=>(
+                      <div key={i} style={{display:"flex",gap:10,padding:"8px 12px",
+                                           background:i%2===0?"white":"#fafafa",
+                                           borderBottom:"1px solid #f0f0f0",alignItems:"flex-start"}}>
+                        <div style={{fontSize:10,color:"#aaa",flexShrink:0,paddingTop:2,minWidth:80,textAlign:"right"}}>
+                          {date.toLocaleDateString()}
+                        </div>
+                        <div style={{width:3,background:TEAL,borderRadius:2,alignSelf:"stretch",flexShrink:0}}/>
+                        <div style={{flex:1}}>
+                          <span style={{fontWeight:700,color:TEAL_DARK,marginRight:6}}>Rev {e.rev}</span>
+                          <span style={{color:"#555",fontSize:12}}>{e.description||"—"}</span>
+                        </div>
+                        <div style={{fontSize:10,color:"#888",flexShrink:0,textAlign:"right"}}>
+                          <div style={{fontWeight:600}}>{s.stationNo}</div>
+                          <div>{e.by||"—"}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Author breakdown */}
+              {Object.keys(results.authorMap).length>0&&(
+                <div>
+                  <div style={{fontWeight:600,fontSize:12,color:TEAL_DARK,marginBottom:6}}>
+                    👤 Author Breakdown
+                  </div>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    {Object.entries(results.authorMap)
+                      .sort((a,b)=>b[1].count-a[1].count)
+                      .map(([author,data])=>(
+                        <div key={author} style={{background:TEAL_LIGHT,border:`1px solid ${TEAL}`,
+                                                   borderRadius:8,padding:"10px 14px",minWidth:140}}>
+                          <div style={{fontWeight:700,fontSize:13,color:TEAL_DARK}}>{author}</div>
+                          <div style={{fontSize:12,color:"#555",marginTop:2}}>
+                            {data.count} revision{data.count!==1?"s":""} · {data.stations.length} station{data.stations.length!==1?"s":""}
+                          </div>
+                          <div style={{fontSize:10,color:"#888",marginTop:4}}>
+                            {data.stations.map(s=>s.stationNo||s.sopId).join(", ")}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+            </>)}
+          </div>
+        </>)}
+      </div>
+    </div>
+  );
+}
+
+
 // ─── Line Balance ─────────────────────────────────────────────────────────────
 function LineBalance({ stations, lines }) {
   const [scope,        setScope]       = useState("all");
@@ -5248,7 +5704,7 @@ export default function App() {
           <span style={{background:TEAL,padding:"3px 10px",borderRadius:4,fontWeight:900,fontSize:16,letterSpacing:1}}>LVT</span>
           <span style={{fontWeight:700,fontSize:14}}>SOP Builder</span>
         </div>
-        {[{id:"lines",label:"🏗️ Lines"},{id:"balance",label:"📊 Line Balance"}].map(t=>(
+        {[{id:"lines",label:"🏗️ Lines"},{id:"balance",label:"📊 Line Balance"},{id:"analysis",label:"📈 Analysis"}].map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} style={{background:tab===t.id?"rgba(255,255,255,0.18)":"transparent",border:"none",borderBottom:tab===t.id?"3px solid white":"3px solid transparent",color:"white",padding:"0 14px",cursor:"pointer",fontSize:13,fontWeight:tab===t.id?700:400,alignSelf:"stretch"}}>{t.label}</button>
         ))}
         <button onClick={()=>setSidebarOpen(o=>!o)} title={sidebarOpen?"Hide navigator":"Show navigator"}
@@ -5395,6 +5851,12 @@ export default function App() {
         {tab==="balance" && (
           <div style={{background:"white",borderRadius:12,padding:22,boxShadow:"0 1px 5px rgba(0,0,0,0.07)"}}>
             <LineBalance stations={stations} lines={lines}/>
+          </div>
+        )}
+
+        {tab==="analysis" && (
+          <div style={{background:"white",borderRadius:12,padding:22,boxShadow:"0 1px 5px rgba(0,0,0,0.07)"}}>
+            <AnalysisTab stations={stations} lines={lines}/>
           </div>
         )}
         </div>{/* /maxWidth */}
