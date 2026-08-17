@@ -785,7 +785,7 @@ const buildPrintHTML = (station, screen=false) => {
     const renderWiImages = (imgs) => imgs.map((img, fi) => `
       <div style="text-align:${alignCSS[img.align||"center"]};margin:8px 0;page-break-inside:avoid;">
         <img src="${img.src}"
-          style="width:${sizeW[img.size||"full"]};max-height:${img.size==="full"?"4.2in":"2.8in"};object-fit:contain;border:1px solid #ccc;"/>
+          style="max-width:${sizeW[img.size||"full"]};width:auto;height:auto;max-height:${img.size==="full"?"4.2in":"2.8in"};display:inline-block;border:1px solid #ccc;"/>
         <div style="font-size:8pt;color:#555;margin-top:3px;font-style:italic;text-align:${alignCSS[img.align||"center"]};">
           <strong>Fig. ${fi+1}</strong>${img.caption?" — "+safe(img.caption):""}
         </div>
@@ -978,7 +978,7 @@ function SOPPreview({ station, onClose }) {
       <div style={{flex:1,overflow:"auto",background:"#4b5563"}}>
         <iframe
           srcDoc={html}
-          style={{width:"100%",height:"100%",border:"none",display:"block"}}
+          style={{width:"100%",height:"100%",minHeight:"calc(100vh - 48px)",border:"none",display:"block"}}
           title="SOP Preview"
         />
       </div>
