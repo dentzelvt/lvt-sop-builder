@@ -943,7 +943,7 @@ const buildPrintHTML = (station, screen=false) => {
   .ht td{border:1px solid #888;padding:3px 5px;font-size:9pt;}
   .logo{width:62px;background:#00897b !important;color:white !important;font-size:17pt;font-weight:900;text-align:center;vertical-align:middle;}
   .title{text-align:center;font-size:15pt;font-weight:bold;background:#00897b !important;color:white !important;padding:6px;}
-  .lbl {font-weight:bold;background:#e0e0e0 !important;padding:4px 8px;font-size:9pt;display:block;}
+  .lbl {font-weight:bold;background:#e0e0e0 !important;padding:4px 8px;font-size:9pt;}
   .bt  {width:100%;border-collapse:collapse;}
   .bt td{border:1px solid #aaa;font-size:9pt;}
   .footer{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding-top:6px;font-size:8pt;color:#555;border-top:2px solid #00897b;}
