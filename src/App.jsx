@@ -1011,8 +1011,12 @@ const exportPDF = (station) => {
 
 // ─── SOP Preview ──────────────────────────────────────────────────────────────
 function SOPPreview({ station, onClose }) {
-  // Build screen-mode HTML (pages as white sheets on grey, no auto-print)
-  const html = buildPrintHTML(station, true);
+  let html = "";
+  try {
+    html = buildPrintHTML(station, true);
+  } catch(e) {
+    html = `<html><body style="font-family:monospace;padding:20px;color:red;"><h2>Preview Error</h2><pre>${String(e)}\n\n${e.stack||""}</pre></body></html>`;
+  }
   return (
     <div style={{position:"fixed",inset:0,background:"#374151",zIndex:1000,display:"flex",flexDirection:"column"}}>
       {/* toolbar */}
