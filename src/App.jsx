@@ -1,8 +1,15 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 
 // ─── Version & Changelog ──────────────────────────────────────────────────────
-const APP_VERSION = "1.17.1";
+const APP_VERSION = "1.18.0";
 const CHANGELOG = [
+  { version:"1.18.0", date:"2026-08-17", notes:[
+    "Work Instruction station format — new station type for image-based guides (hanging guides, staging guides, paint guides)",
+    "Each WI task has: Part No., Part Description, primary image, optional secondary image, setup/positioning instructions (relabelable), work instructions, custom key-value pairs and text blocks",
+    "WI PDF layout options: Stacked Sections, Single Page, Two Column",
+    "WI station cycle time feeds into Line Balance tab",
+    "Station format toggle: Standard SOP (Tasks & Steps) vs Work Instruction per station",
+  ]},
   { version:"1.17.1", date:"2026-08-04", notes:[
     "Torque checklist auto-displayed when torque spec is set: Verify torque setting, Torque fastener, Mark with paint pen",
     "Checklist renders in builder as visual reference and in PDF as printable checkboxes (☐)",
@@ -164,6 +171,9 @@ const mkStation = () => ({
   // Rev A is always pre-seeded so it appears in the log from day one
   generalNotes:"Tasks may be completed in any order, if steps are numbered they must be followed in order as specified.",
   stationImages:[], tasks:[],
+  stationType:"standard", // "standard" | "wi"
+  wiLayout:"stacked",     // "stacked" | "single" | "twocol"
+  wiCycleTime:"",
 });
 const mkTask = (sopId, taskNo) => ({
   id:Date.now()+Math.random(), taskNo, taskId:genTaskId(sopId,taskNo),
@@ -174,7 +184,28 @@ const mkStep = () => ({
   description:"", keyPoints:"", icons:[], cycleTime:"", images:[], selectedTools:[], selectedDrawings:[],
   torqueValue:"", torqueUnit:"ft-lbs",
 });
+const mkWiTask = (sopId, taskNo) => ({
+  id:Date.now()+Math.random(), taskNo, taskId:genTaskId(sopId,taskNo),
+  description:"",          // task title / part description
+  partNo:"",               // part number
+  partDesc:"",             // part description
+  primaryImage:null,       // base64 large image
+  secondaryImage:null,     // base64 detail image (optional)
+  setupLabel:"Setup / Positioning Instructions",
+  setupNotes:"",           // setup / positioning instructions
+  workInstructions:"",     // general work instructions
+  customFields:[],         // [{id, type:"kv"|"text", label, value}]
+});
+
+const mkWiCustomField = (type="kv") => ({
+  id:Date.now()+Math.random(),
+  type, // "kv" = key-value pair, "text" = labeled text block
+  label:"",
+  value:"",
+});
+
 const mkLine = () => ({
+
   id: Date.now()+Math.random(),
   name: "",
   description: "",
@@ -523,11 +554,94 @@ const writeCSVAlongside = async (jsonHandle, stations, baseName) => {
 const buildPrintHTML = (station, screen=false) => {
   const safe = (s) => String(s||"")
     .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br/>");
-  // Render **bold** and _italic_ markers
   const rich = (s) => safe(s)
     .replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>")
     .replace(/_(.+?)_/g,"<em>$1</em>");
   const today = new Date().toLocaleDateString();
+
+  // ── Work Instruction print layout ──────────────────────────────────────────
+  if(station.stationType === "wi") {
+    const wiPages = station.tasks.map(task => {
+      const layout = station.wiLayout || "stacked";
+
+      const partRow = (task.partNo||task.partDesc) ? `
+        <table class="bt" style="margin-bottom:6px;">
+          ${task.partNo ? `<tr><td class="lbl" style="width:120px">PART NO</td><td>${safe(task.partNo)}</td></tr>` : ""}
+          ${task.partDesc ? `<tr><td class="lbl">PART DESCRIPTION</td><td>${safe(task.partDesc)}</td></tr>` : ""}
+        </table>` : "";
+
+      const primaryImg = task.primaryImage
+        ? `<div style="text-align:center;margin:6px 0;"><img src="${task.primaryImage}" style="max-width:100%;max-height:3.5in;border:1px solid #bbb;"/></div>`
+        : "";
+
+      const secondaryImg = task.secondaryImage
+        ? `<img src="${task.secondaryImage}" style="max-width:2.5in;max-height:2.5in;border:1px solid #bbb;display:block;margin-bottom:6px;"/>`
+        : "";
+
+      const setupBlock = task.setupNotes ? `
+        <table class="bt" style="margin-bottom:6px;">
+          <tr><td class="lbl" colspan="2">${safe(task.setupLabel||"SETUP / POSITIONING INSTRUCTIONS")}</td></tr>
+          <tr><td colspan="2" style="padding:6px 8px;font-size:9pt;">${rich(task.setupNotes)}</td></tr>
+        </table>` : "";
+
+      const wiBlock = task.workInstructions ? `
+        <table class="bt" style="margin-bottom:6px;">
+          <tr><td class="lbl">WORK INSTRUCTIONS</td></tr>
+          <tr><td style="padding:6px 8px;font-size:9pt;">${rich(task.workInstructions)}</td></tr>
+        </table>` : "";
+
+      const customBlocks = (task.customFields||[]).map(cf => cf.type==="kv"
+        ? `<tr><td class="lbl" style="width:40%">${safe(cf.label)}</td><td>${safe(cf.value)}</td></tr>`
+        : `<tr><td class="lbl" colspan="2">${safe(cf.label)}</td></tr><tr><td colspan="2" style="padding:5px 8px;font-size:9pt;">${rich(cf.value)}</td></tr>`
+      ).join("");
+      const customTable = customBlocks ? `<table class="bt" style="margin-bottom:6px;">${customBlocks}</table>` : "";
+
+      let contentHtml = "";
+      if(layout === "twocol" && task.secondaryImage) {
+        contentHtml = `
+          <table style="width:100%;border-collapse:collapse;">
+            <tr>
+              <td style="width:40%;padding-right:10px;vertical-align:top;">${secondaryImg}</td>
+              <td style="vertical-align:top;">${setupBlock}${wiBlock}${customTable}</td>
+            </tr>
+          </table>`;
+      } else {
+        contentHtml = `${secondaryImg}${setupBlock}${wiBlock}${customTable}`;
+      }
+
+      const taskTitle = `
+        <div style="background:#00897b;color:white;padding:5px 8px;font-weight:700;font-size:11pt;margin-bottom:6px;border-radius:3px;">
+          ${safe(task.description||"Work Instruction")}
+        </div>`;
+
+      return `
+        <div class="pg">
+          ${hdr(station.sopRev)}
+          ${taskTitle}
+          ${partRow}
+          ${primaryImg}
+          ${contentHtml}
+        </div>`;
+    }).join("\n");
+
+    return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><title>${pdfName(station)}</title>
+<style>
+  * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; box-sizing:border-box; font-family:Arial,sans-serif; }
+  body { font-size:10pt; }
+  ${screenStyles}
+  .ht{width:100%;border-collapse:collapse;} .ht td{border:1px solid #888;padding:3px 5px;font-size:9pt;}
+  .logo{width:62px;background:#00897b !important;color:white !important;font-size:17pt;font-weight:900;text-align:center;vertical-align:middle;}
+  .title{text-align:center;font-size:15pt;font-weight:bold;background:#00897b !important;color:white !important;padding:6px;}
+  .lbl{font-weight:bold;background:#e0e0e0 !important;padding:4px 8px;}
+  .bt{width:100%;border-collapse:collapse;} .bt td{border:1px solid #aaa;padding:4px 6px;font-size:9pt;}
+</style></head>
+<body>
+  ${cover}
+  ${wiPages}
+  ${!screen ? '<scr'+'ipt>window.onload=()=>{setTimeout(()=>window.print(),400);}</scr'+'ipt>' : ""}
+</body></html>`;
+  }
 
   const hdr = (extra="") => `
     <table class="ht" cellspacing="0">
@@ -2247,6 +2361,160 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
   );
 }
 
+// ─── Work Instruction Task Editor ─────────────────────────────────────────────
+function WiTaskEditor({ task, onUpdate, onDelete, confirmDelete }) {
+  const u = (f,v) => onUpdate({...task,[f]:v});
+  const imgRef = useRef(); const img2Ref = useRef();
+  const [collapsed, setCollapsed] = useState(true);
+
+  const addCustomField = (type) => u("customFields",[...(task.customFields||[]), mkWiCustomField(type)]);
+  const updCustomField = (i,f,v) => { const cf=[...(task.customFields||[])]; cf[i]={...cf[i],[f]:v}; u("customFields",cf); };
+  const delCustomField = (i) => u("customFields",(task.customFields||[]).filter((_,j)=>j!==i));
+  const readImg = (file, field) => { const r=new FileReader(); r.onload=e=>u(field,e.target.result); r.readAsDataURL(file); };
+
+  return (
+    <div style={{border:"1px solid #e0e0e0",borderRadius:8,marginBottom:8,background:"white"}}>
+      <div onClick={()=>setCollapsed(c=>!c)}
+        style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",cursor:"pointer",
+                background:collapsed?"#fafafa":"#e0f2f1",borderRadius:collapsed?"8px":"8px 8px 0 0",userSelect:"none"}}>
+        <span style={{color:TEAL,fontSize:12}}>{collapsed?"▶":"▼"}</span>
+        <span style={{fontWeight:700,fontSize:13,color:TEAL_DARK,flex:1}}>
+          {task.description||"(untitled task)"}
+          {task.partNo&&<span style={{fontSize:11,color:"#888",fontWeight:400,marginLeft:8}}>P/N: {task.partNo}</span>}
+        </span>
+        <button onClick={e=>{e.stopPropagation();onDelete();}}
+          style={{background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:4,padding:"2px 8px",cursor:"pointer",color:"#c62828",fontSize:11}}>✕</button>
+      </div>
+
+      {!collapsed && (
+        <div style={{padding:16}}>
+          {/* Title + Part fields */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 2fr",gap:10,marginBottom:14}}>
+            <div>
+              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:3}}>Task Title *</label>
+              <input value={task.description||""} onChange={e=>u("description",e.target.value)}
+                placeholder="e.g. GEN6 Battery Box Back Panel"
+                style={{width:"100%",padding:"5px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12}}/>
+            </div>
+            <div>
+              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:3}}>Part No.</label>
+              <input value={task.partNo||""} onChange={e=>u("partNo",e.target.value)}
+                placeholder="e.g. 547781"
+                style={{width:"100%",padding:"5px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12}}/>
+            </div>
+            <div>
+              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:3}}>Part Description</label>
+              <input value={task.partDesc||""} onChange={e=>u("partDesc",e.target.value)}
+                placeholder="e.g. GEN6 MMS, Battery Box, Back Panel"
+                style={{width:"100%",padding:"5px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12}}/>
+            </div>
+          </div>
+
+          {/* Images */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+            <div>
+              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:4,fontWeight:600}}>
+                📷 Primary Image <span style={{fontWeight:400,color:"#aaa"}}>(large, top of card)</span>
+              </label>
+              {task.primaryImage ? (
+                <div style={{position:"relative",display:"inline-block"}}>
+                  <img src={task.primaryImage} alt="primary"
+                    style={{maxWidth:"100%",maxHeight:200,borderRadius:5,border:"1px solid #ddd",display:"block"}}/>
+                  <button onClick={()=>u("primaryImage",null)}
+                    style={{position:"absolute",top:-8,right:-8,background:"#e53935",color:"white",border:"none",
+                            borderRadius:"50%",width:20,height:20,cursor:"pointer",fontSize:11,lineHeight:"20px",textAlign:"center",padding:0}}>✕</button>
+                </div>
+              ) : (
+                <button onClick={()=>imgRef.current.click()}
+                  style={{width:"100%",height:80,border:"2px dashed #ccc",borderRadius:5,cursor:"pointer",background:"#fafafa",fontSize:12,color:"#888"}}>
+                  + Upload primary image
+                </button>
+              )}
+              <input ref={imgRef} type="file" accept="image/*" style={{display:"none"}}
+                onChange={e=>{if(e.target.files[0])readImg(e.target.files[0],"primaryImage");e.target.value="";}}/>
+            </div>
+            <div>
+              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:4,fontWeight:600}}>
+                📷 Secondary Image <span style={{fontWeight:400,color:"#aaa"}}>(optional detail)</span>
+              </label>
+              {task.secondaryImage ? (
+                <div style={{position:"relative",display:"inline-block"}}>
+                  <img src={task.secondaryImage} alt="secondary"
+                    style={{maxWidth:"100%",maxHeight:200,borderRadius:5,border:"1px solid #ddd",display:"block"}}/>
+                  <button onClick={()=>u("secondaryImage",null)}
+                    style={{position:"absolute",top:-8,right:-8,background:"#e53935",color:"white",border:"none",
+                            borderRadius:"50%",width:20,height:20,cursor:"pointer",fontSize:11,lineHeight:"20px",textAlign:"center",padding:0}}>✕</button>
+                </div>
+              ) : (
+                <button onClick={()=>img2Ref.current.click()}
+                  style={{width:"100%",height:80,border:"2px dashed #ccc",borderRadius:5,cursor:"pointer",background:"#fafafa",fontSize:12,color:"#888"}}>
+                  + Upload secondary image (optional)
+                </button>
+              )}
+              <input ref={img2Ref} type="file" accept="image/*" style={{display:"none"}}
+                onChange={e=>{if(e.target.files[0])readImg(e.target.files[0],"secondaryImage");e.target.value="";}}/>
+            </div>
+          </div>
+
+          {/* Setup instructions */}
+          <div style={{marginBottom:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+              <label style={{fontSize:11,color:"#555",fontWeight:600}}>Section Label:</label>
+              <input value={task.setupLabel||"Setup / Positioning Instructions"}
+                onChange={e=>u("setupLabel",e.target.value)}
+                style={{fontSize:11,padding:"2px 6px",border:"1px solid #ddd",borderRadius:4,color:"#333",width:280}}
+                placeholder="Rename this section…"/>
+            </div>
+            <AutoTextarea value={task.setupNotes||""} onChange={e=>u("setupNotes",e.target.value)}
+              placeholder="Enter setup or positioning instructions…" minRows={2}/>
+          </div>
+
+          {/* Work instructions */}
+          <div style={{marginBottom:14}}>
+            <label style={{fontSize:11,color:"#555",display:"block",marginBottom:4,fontWeight:600}}>Work Instructions / Notes</label>
+            <AutoTextarea value={task.workInstructions||""} onChange={e=>u("workInstructions",e.target.value)}
+              placeholder="Enter work instructions, quality notes, paint instructions…" minRows={3}/>
+          </div>
+
+          {/* Custom fields */}
+          {(task.customFields||[]).length>0 && (
+            <div style={{marginBottom:10}}>
+              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:6,fontWeight:600}}>Custom Fields</label>
+              {(task.customFields||[]).map((cf,i)=>(
+                <div key={cf.id} style={{display:"flex",gap:6,alignItems:"flex-start",marginBottom:6}}>
+                  <input value={cf.label} onChange={e=>updCustomField(i,"label",e.target.value)}
+                    placeholder={cf.type==="kv"?"Label e.g. Load Bar Qty":"Section heading"}
+                    style={{padding:"5px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12,width:cf.type==="kv"?180:220,flexShrink:0}}/>
+                  {cf.type==="kv" ? (
+                    <input value={cf.value} onChange={e=>updCustomField(i,"value",e.target.value)}
+                      placeholder="Value e.g. 4"
+                      style={{flex:1,padding:"5px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12}}/>
+                  ) : (
+                    <AutoTextarea value={cf.value||""} onChange={e=>updCustomField(i,"value",e.target.value)}
+                      placeholder="Content for this section…" minRows={2} style={{flex:1}}/>
+                  )}
+                  <button onClick={()=>delCustomField(i)}
+                    style={{background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:4,padding:"4px 7px",cursor:"pointer",color:"#c62828",fontSize:11,flexShrink:0,marginTop:1}}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>addCustomField("kv")}
+              style={{fontSize:11,padding:"4px 10px",background:"#f5f5f5",border:"1px solid #ddd",borderRadius:5,cursor:"pointer",color:"#555"}}>
+              + Key-Value Pair
+            </button>
+            <button onClick={()=>addCustomField("text")}
+              style={{fontSize:11,padding:"4px 10px",background:"#f5f5f5",border:"1px solid #ddd",borderRadius:5,cursor:"pointer",color:"#555"}}>
+              + Text Block
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Station Editor ───────────────────────────────────────────────────────────
 function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPreview, allStations, lineName="", stationIdentifier="", stationHandle=null, onStationHandle=null, confirmDelete=null }) {
   const u=(f,v)=>{
@@ -2294,6 +2562,7 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
       <div onClick={onSelect} style={{background:isActive?TEAL:"#f5f5f5",color:isActive?"white":"#333",padding:"10px 14px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",userSelect:"none",borderRadius:isActive?"8px 8px 0 0":"8px"}}>
         <div style={{display:"flex",gap:10,alignItems:"center",minWidth:0}}>
           <span style={{fontWeight:700,fontSize:14,whiteSpace:"nowrap"}}>{station.stationNo||"New Station"}</span>
+          {station.stationType==="wi" && <span style={{fontSize:10,background:"#fff3e0",color:"#e65100",border:"1px solid #ffb74d",borderRadius:4,padding:"1px 6px",fontWeight:700,flexShrink:0}}>WI</span>}
           {station.stationDesc&&<span style={{fontSize:12,opacity:0.85}}>— {station.stationDesc}</span>}
           {station.sopId&&<span style={{fontFamily:"monospace",fontSize:11,opacity:0.75}}>{station.sopId}</span>}
           <span style={{fontSize:11,opacity:0.8}}>⏱ {fmtTime(total)} | {station.tasks.length} task(s)</span>
@@ -2308,6 +2577,40 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
 
       {isActive && (
         <div style={{padding:16}}>
+          {/* Station Type Toggle */}
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"8px 12px",
+                       background:"#fafafa",borderRadius:7,border:"1px solid #e0e0e0"}}>
+            <span style={{fontSize:12,fontWeight:600,color:"#555",flexShrink:0}}>Station Format:</span>
+            {[{val:"standard",label:"📋 Standard SOP",desc:"Tasks & Steps"},
+              {val:"wi",      label:"📄 Work Instruction",desc:"Image + Instructions"}
+            ].map(opt=>(
+              <label key={opt.val} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",
+                                          padding:"5px 12px",borderRadius:6,
+                                          background:station.stationType===opt.val?TEAL_LIGHT:"white",
+                                          border:`1px solid ${station.stationType===opt.val?TEAL:"#ddd"}`,
+                                          fontSize:12}}>
+                <input type="radio" name={`stype_${station.id}`} value={opt.val}
+                  checked={station.stationType===opt.val}
+                  onChange={()=>onUpdate({...station,stationType:opt.val})}
+                  style={{accentColor:TEAL}}/>
+                <span style={{fontWeight:600,color:station.stationType===opt.val?TEAL_DARK:"#444"}}>{opt.label}</span>
+                <span style={{color:"#999",fontSize:10}}>{opt.desc}</span>
+              </label>
+            ))}
+            {/* Layout selector — only for WI */}
+            {station.stationType==="wi" && (
+              <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,fontSize:12}}>
+                <span style={{color:"#555",fontWeight:600}}>PDF Layout:</span>
+                <select value={station.wiLayout||"stacked"}
+                  onChange={e=>onUpdate({...station,wiLayout:e.target.value})}
+                  style={{padding:"3px 7px",border:"1px solid #ccc",borderRadius:5,fontSize:12,background:"white"}}>
+                  <option value="stacked">Stacked Sections</option>
+                  <option value="single">Single Page</option>
+                  <option value="twocol">Two Column</option>
+                </select>
+              </div>
+            )}
+          </div>
           {/* Station fields */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:8}}>
             {/* Station No — editable, defaults from line identifier */}
@@ -2420,8 +2723,35 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
               Tasks ({station.tasks.length}) <span style={{fontSize:12,color:"#888",fontWeight:400}}>Total: {fmtTime(total)}</span>
               <span style={{fontSize:11,color:"#aaa",fontWeight:400,marginLeft:8}}>⠿ drag to reorder</span>
             </div>
-            {station.tasks.map((task,i)=>(
-              <TaskEditor key={task.id} task={task}
+            {station.stationType==="wi" ? (
+              /* ── Work Instruction Tasks ── */
+              <div>
+                {/* WI cycle time */}
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"8px 12px",background:"#fff8e1",borderRadius:6,border:"1px solid #ffe082"}}>
+                  <span style={{fontSize:12,fontWeight:600,color:"#555"}}>⏱ Station Cycle Time:</span>
+                  <input value={station.wiCycleTime||""} onChange={e=>onUpdate({...station,wiCycleTime:e.target.value})}
+                    placeholder="secs or MM:SS" type="text"
+                    style={{width:110,padding:"4px 8px",border:"1px solid #ffe082",borderRadius:5,fontSize:12}}/>
+                  {station.wiCycleTime&&<span style={{fontSize:11,color:"#888"}}>{fmtTime(parseTime(station.wiCycleTime))}</span>}
+                </div>
+                {/* WI task cards */}
+                {station.tasks.map((task,i)=>(
+                  <WiTaskEditor key={task.id} task={task}
+                    onUpdate={t=>updTask(i,t)}
+                    onDelete={()=>{ if(confirmDelete) confirmDelete("task",task.description||"this task",{stationId:station.id,taskIdx:i}); else delTask(i); }}
+                    confirmDelete={confirmDelete}/>
+                ))}
+                <button onClick={()=>{
+                  const no=station.tasks.length+1;
+                  u("tasks",[...station.tasks, mkWiTask(station.sopId,no)]);
+                }} style={{background:TEAL_LIGHT,border:`2px dashed ${TEAL}`,borderRadius:8,padding:"10px 18px",
+                           cursor:"pointer",fontSize:13,width:"100%",color:TEAL_DARK,fontWeight:600,marginTop:6}}>
+                  + Add Task
+                </button>
+              </div>
+            ) : (
+              /* ── Standard Tasks ── */
+              <div>
                 dragProps={taskDrag(i)}
                 onUpdate={(t,extra)=>updTask(i,t,extra)}
                 onDelete={()=>{ if(confirmDelete){ const sid=station.id; confirmDelete("task",task.description||"this task",{stationId:sid,taskIdx:i}); } else delTask(i); }}
@@ -2436,6 +2766,8 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
             <button onClick={addTask} style={{background:TEAL_LIGHT,border:`2px dashed ${TEAL}`,borderRadius:8,padding:"10px 18px",cursor:"pointer",fontSize:13,width:"100%",color:TEAL_DARK,fontWeight:600,marginTop:6}}>
               + Add Task
             </button>
+          </div>
+            )} {/* end standard/WI conditional */}
           </div>
         </div>
       )}
@@ -2482,8 +2814,8 @@ function LineBalance({ stations, lines }) {
       }))
     : scopedStations.map(s=>({
         id:s.id, name:s.stationNo||s.sopId||"Station",
-        sopId:s.sopId, total:sumTasks(s.tasks),
-        tasks:s.tasks.length, steps:s.tasks.reduce((n,t)=>n+t.steps.length,0),
+        sopId:s.sopId, total: s.stationType==="wi" ? parseTime(s.wiCycleTime||"0") : sumTasks(s.tasks),
+        tasks:s.tasks.length, steps:s.stationType==="wi" ? 0 : s.tasks.reduce((n,t)=>n+t.steps.length,0),
       }));
 
   const max    = Math.max(...data.map(d=>d.total), taktMin||0, 0.01);
