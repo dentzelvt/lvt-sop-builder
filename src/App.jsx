@@ -943,15 +943,19 @@ const buildPrintHTML = (station, screen=false) => {
       box-sizing:border-box; font-family:Arial,sans-serif; }
   body { font-size:10pt; }
   ${screenStyles}
-  .ht  {width:100%;border-collapse:collapse;}
-  .ht td{border:1px solid #888;padding:3px 5px;font-size:9pt;}
+  .ht{width:100%;border-collapse:collapse;} .ht td{border:1px solid #888;padding:3px 5px;font-size:9pt;}
   .logo{width:62px;background:#00897b !important;color:white !important;font-size:17pt;font-weight:900;text-align:center;vertical-align:middle;}
   .title{text-align:center;font-size:15pt;font-weight:bold;background:#00897b !important;color:white !important;padding:6px;}
-  .lbl {font-weight:bold;background:#e0e0e0 !important;padding:4px 8px;font-size:9pt;}
-  .bt  {width:100%;border-collapse:collapse;}
-  .bt td{border:1px solid #aaa;font-size:9pt;}
+  .lbl{font-weight:bold;background:#e0e0e0 !important;}
+  .task-lbl{font-weight:bold;background:#b2dfdb !important;color:#00695c;}
+  .task-desc{background:#e0f2f1 !important;font-size:9pt;}
+  .bt{width:100%;border-collapse:collapse;margin-top:4px;} .bt td{border:1px solid #888;padding:4px 6px;font-size:9pt;}
+  .sh{background:#e0e0e0 !important;font-weight:bold;text-align:center;padding:4px 6px;}
+  .col-hdr{background:#00897b !important;color:white !important;font-weight:bold;padding:5px 6px;}
+  .content{padding:5px 7px;min-height:20px;} .vtop{vertical-align:top;}
   .footer{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding-top:6px;font-size:8pt;color:#555;border-top:2px solid #00897b;}
   .f-left{text-align:left;} .f-center{text-align:center;font-weight:700;color:#00695c;font-size:9pt;} .f-right{text-align:right;}
+  .wi-task-hdr{background:#00897b !important;color:white !important;padding:6px 10px;font-weight:700;font-size:12pt;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;}
 </style></head>
 <body>
   ${cover}
@@ -1011,12 +1015,7 @@ const exportPDF = (station) => {
 
 // ─── SOP Preview ──────────────────────────────────────────────────────────────
 function SOPPreview({ station, onClose }) {
-  let html = "";
-  try {
-    html = buildPrintHTML(station, true);
-  } catch(e) {
-    html = `<html><body style="font-family:monospace;padding:20px;color:red;"><h2>Preview Error</h2><pre>${String(e)}\n\n${e.stack||""}</pre></body></html>`;
-  }
+  const html = buildPrintHTML(station, true);
   return (
     <div style={{position:"fixed",inset:0,background:"#374151",zIndex:1000,display:"flex",flexDirection:"column"}}>
       {/* toolbar */}
