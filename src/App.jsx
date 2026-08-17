@@ -190,8 +190,6 @@ const mkWiTask = (sopId, taskNo) => ({
   partNo:"",
   partDesc:"",
   wiImages:[],   // [{id, src, caption, size:"full"|"half"|"third", align:"center"|"left"|"right"}]
-  setupLabel:"Setup / Positioning Instructions",
-  setupNotes:"",
   workInstructions:"",
   customFields:[],
 });
@@ -200,15 +198,19 @@ const mkWiImage = (src) => ({
   id: Date.now()+Math.random(),
   src,
   caption:"",
-  size:"full",    // full | half | third
-  align:"center", // center | left | right
+  size:"full",
+  align:"center",
 });
 
-const mkWiCustomField = (type="kv") => ({
-  id:Date.now()+Math.random(),
-  type, // "kv" = key-value pair, "text" = labeled text block
+const mkWiCustomField = (cols=1) => ({
+  id: Date.now()+Math.random(),
+  cols,           // 1 = full width, 2 = two side-by-side boxes
+  // col 1
   label:"",
   value:"",
+  // col 2 (only used when cols===2)
+  label2:"",
+  value2:"",
 });
 
 const mkLine = () => ({
@@ -779,23 +781,92 @@ const buildPrintHTML = (station, screen=false) => {
 
   // ── Work Instruction print layout ──────────────────────────────────────────
   if(station.stationType === "wi") {
-    const sizeW   = {full:"100%", half:"50%", third:"33%"};
     const alignCSS = {left:"left", center:"center", right:"right"};
 
-    const renderWiImages = (imgs) => imgs.map((img, fi) => `
-      <div style="text-align:${alignCSS[img.align||"center"]};margin:8px 0;page-break-inside:avoid;">
-        <img src="${img.src}"
-          style="max-width:${sizeW[img.size||"full"]};width:auto;height:auto;max-height:${img.size==="full"?"4.2in":"2.8in"};display:inline-block;border:1px solid #ccc;"/>
-        <div style="font-size:8pt;color:#555;margin-top:3px;font-style:italic;text-align:${alignCSS[img.align||"center"]};">
-          <strong>Fig. ${fi+1}</strong>${img.caption?" — "+safe(img.caption):""}
-        </div>
-      </div>`).join("");
+    // Group images by size for row-based layout
+    // full = one per row, half = two per row, third = three per row
+    const renderWiImageBlock = (images, figOffset=0) => {
+      const rows = [];
+      let i = 0;
+      while(i < images.length) {
+        const img = images[i];
+        const size = img.size || "full";
+        if(size === "full") {
+          const align = alignCSS[img.align||"center"];
+          rows.push(`
+            <div style="text-align:${align};margin:8px 0;page-break-inside:avoid;">
+              <img src="${img.src}" style="max-width:100%;height:auto;max-height:4.5in;display:inline-block;border:1px solid #ccc;"/>
+              ${img.caption||figOffset+i?"<div style=\"font-size:8pt;color:#555;margin-top:3px;font-style:italic;text-align:"+align+";\"><strong>Fig. "+(figOffset+i+1)+"</strong>"+(img.caption?" — "+safe(img.caption):"")+"</div>":""}
+            </div>`);
+          i++;
+        } else if(size === "half") {
+          const pair = images.slice(i, i+2).filter(x=>x.size==="half");
+          if(pair.length === 2) {
+            rows.push(`
+              <table style="width:100%;border-collapse:collapse;margin:8px 0;page-break-inside:avoid;">
+                <tr>
+                  ${pair.map((im,pi)=>`
+                  <td style="width:50%;padding:0 ${pi===0?"6px 0 0":"0 0 6px"};vertical-align:top;text-align:center;">
+                    <img src="${im.src}" style="max-width:100%;height:auto;max-height:3in;border:1px solid #ccc;display:inline-block;"/>
+                    ${im.caption||true?"<div style=\"font-size:8pt;color:#555;margin-top:3px;font-style:italic;text-align:center;\"><strong>Fig. "+(figOffset+i+pi+1)+"</strong>"+(im.caption?" — "+safe(im.caption):"")+"</div>":""}
+                  </td>`).join("")}
+                </tr>
+              </table>`);
+            i += 2;
+          } else {
+            // Odd half — render as full
+            rows.push(`
+              <div style="text-align:center;margin:8px 0;page-break-inside:avoid;">
+                <img src="${img.src}" style="max-width:50%;height:auto;max-height:3in;display:inline-block;border:1px solid #ccc;"/>
+                ${img.caption?"<div style=\"font-size:8pt;color:#555;margin-top:3px;font-style:italic;text-align:center;\"><strong>Fig. "+(figOffset+i+1)+"</strong> — "+safe(img.caption)+"</div>":""}
+              </div>`);
+            i++;
+          }
+        } else { // third
+          const trio = images.slice(i, i+3).filter(x=>x.size==="third");
+          const cols = Math.min(trio.length, 3);
+          rows.push(`
+            <table style="width:100%;border-collapse:collapse;margin:8px 0;page-break-inside:avoid;">
+              <tr>
+                ${trio.map((im,pi)=>`
+                <td style="width:${100/cols}%;padding:0 4px;vertical-align:top;text-align:center;">
+                  <img src="${im.src}" style="max-width:100%;height:auto;max-height:2.5in;border:1px solid #ccc;display:inline-block;"/>
+                  <div style="font-size:8pt;color:#555;margin-top:3px;font-style:italic;text-align:center;"><strong>Fig. ${figOffset+i+pi+1}</strong>${im.caption?" — "+safe(im.caption):""}</div>
+                </td>`).join("")}
+              </tr>
+            </table>`);
+          i += cols;
+        }
+      }
+      return rows.join("\n");
+    };
+
+    const renderCustomField = (cf) => {
+      if(cf.cols === 2) {
+        return `
+          <table class="bt" style="margin-bottom:8px;">
+            <tr>
+              <td style="width:50%;border-right:2px solid #aaa;vertical-align:top;padding:0;">
+                <div class="lbl" style="padding:4px 8px;">${safe(cf.label||"")}</div>
+                <div style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">${rich(cf.value||"")}</div>
+              </td>
+              <td style="width:50%;vertical-align:top;padding:0;">
+                <div class="lbl" style="padding:4px 8px;">${safe(cf.label2||"")}</div>
+                <div style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">${rich(cf.value2||"")}</div>
+              </td>
+            </tr>
+          </table>`;
+      }
+      return `
+        <table class="bt" style="margin-bottom:8px;">
+          <tr><td class="lbl">${safe(cf.label||"")}</td></tr>
+          <tr><td style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">${rich(cf.value||"")}</td></tr>
+        </table>`;
+    };
 
     const wiPages = station.tasks.length === 0
       ? `<div class="pg"><div style="padding:40px;text-align:center;color:#aaa;font-size:12pt;">No tasks added yet.</div></div>`
       : station.tasks.map((task, ti) => {
-          const layout = station.wiLayout || "stacked";
-          // Support both new wiImages array and old primaryImage/secondaryImage fields
           const images = (task.wiImages && task.wiImages.length > 0)
             ? task.wiImages
             : [task.primaryImage&&{id:"p",src:task.primaryImage,caption:"",size:"full",align:"center"},
@@ -804,14 +875,8 @@ const buildPrintHTML = (station, screen=false) => {
 
           const partRow = (task.partNo||task.partDesc) ? `
             <table class="bt" style="margin-bottom:8px;">
-              ${task.partNo ? `<tr><td class="lbl" style="width:130px">PART NO</td><td style="padding:4px 8px;">${safe(task.partNo)}</td></tr>` : ""}
-              ${task.partDesc ? `<tr><td class="lbl">PART DESCRIPTION</td><td style="padding:4px 8px;">${safe(task.partDesc)}</td></tr>` : ""}
-            </table>` : "";
-
-          const setupBlock = task.setupNotes ? `
-            <table class="bt" style="margin-bottom:8px;">
-              <tr><td class="lbl">${safe(task.setupLabel||"SETUP / POSITIONING INSTRUCTIONS")}</td></tr>
-              <tr><td style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">${rich(task.setupNotes)}</td></tr>
+              ${task.partNo?`<tr><td class="lbl" style="width:130px">PART NO</td><td style="padding:4px 8px;">${safe(task.partNo)}</td></tr>`:""}
+              ${task.partDesc?`<tr><td class="lbl">PART DESCRIPTION</td><td style="padding:4px 8px;">${safe(task.partDesc)}</td></tr>`:""}
             </table>` : "";
 
           const wiBlock = task.workInstructions ? `
@@ -820,46 +885,21 @@ const buildPrintHTML = (station, screen=false) => {
               <tr><td style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">${rich(task.workInstructions)}</td></tr>
             </table>` : "";
 
-          const kvRows = (task.customFields||[]).filter(cf=>cf.type==="kv"&&(cf.label||cf.value))
-            .map(cf=>`<tr><td class="lbl" style="width:40%">${safe(cf.label)}</td><td style="padding:4px 8px;">${safe(cf.value)}</td></tr>`)
-            .join("");
-          const kvTable = kvRows ? `<table class="bt" style="margin-bottom:8px;">${kvRows}</table>` : "";
+          // Legacy setup notes support
+          const setupBlock = task.setupNotes ? `
+            <table class="bt" style="margin-bottom:8px;">
+              <tr><td class="lbl">${safe(task.setupLabel||"SETUP INSTRUCTIONS")}</td></tr>
+              <tr><td style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">${rich(task.setupNotes)}</td></tr>
+            </table>` : "";
 
-          const textBlocks = (task.customFields||[]).filter(cf=>cf.type==="text"&&(cf.label||cf.value))
-            .map(cf=>`
-              <table class="bt" style="margin-bottom:8px;">
-                <tr><td class="lbl">${safe(cf.label)}</td></tr>
-                <tr><td style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">${rich(cf.value)}</td></tr>
-              </table>`).join("");
-
-          let bodyHtml = "";
-          if(layout === "twocol" && images.length >= 2) {
-            bodyHtml = `
-              <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
-                <tr>
-                  <td style="width:50%;padding-right:8px;vertical-align:top;">${renderWiImages([images[0]])}</td>
-                  <td style="width:50%;padding-left:8px;vertical-align:top;">${renderWiImages([images[1]])}</td>
-                </tr>
-              </table>
-              ${images.length>2 ? renderWiImages(images.slice(2)) : ""}
-              ${setupBlock}${wiBlock}${kvTable}${textBlocks}`;
-          } else if(layout === "twocol" && images.length === 1) {
-            bodyHtml = `
-              <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
-                <tr>
-                  <td style="width:50%;padding-right:8px;vertical-align:top;">${renderWiImages(images)}</td>
-                  <td style="width:50%;padding-left:8px;vertical-align:top;">${setupBlock}${wiBlock}${kvTable}${textBlocks}</td>
-                </tr>
-              </table>`;
-          } else {
-            // Stacked/single: first image on top, text in middle, remaining images at bottom
-            bodyHtml = `${renderWiImages(images.slice(0,1))}${setupBlock}${wiBlock}${kvTable}${textBlocks}${renderWiImages(images.slice(1))}`;
-          }
+          const customBlocks = (task.customFields||[])
+            .filter(cf=>cf.label||cf.value||cf.label2||cf.value2)
+            .map(cf=>renderCustomField(cf)).join("");
 
           const taskHdr = `
             <div style="background:#00897b;color:white;padding:6px 10px;font-weight:700;font-size:12pt;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
               <span>${safe(task.description||"Work Instruction")}</span>
-              ${task.partNo ? `<span style="font-size:9pt;opacity:0.85;font-weight:400;">P/N: ${safe(task.partNo)}</span>` : ""}
+              ${task.partNo?`<span style="font-size:9pt;opacity:0.85;font-weight:400;">P/N: ${safe(task.partNo)}</span>`:""}
             </div>`;
 
           return `
@@ -868,7 +908,8 @@ const buildPrintHTML = (station, screen=false) => {
               ${taskHdr}
               ${partRow}
               <div class="pg-body">
-                ${bodyHtml}
+                ${renderWiImageBlock(images)}
+                ${setupBlock}${wiBlock}${customBlocks}
               </div>
               ${screenFtr(ti+2)}
             </div>`;
@@ -885,18 +926,16 @@ const buildPrintHTML = (station, screen=false) => {
   .ht td{border:1px solid #888;padding:3px 5px;font-size:9pt;}
   .logo{width:62px;background:#00897b !important;color:white !important;font-size:17pt;font-weight:900;text-align:center;vertical-align:middle;}
   .title{text-align:center;font-size:15pt;font-weight:bold;background:#00897b !important;color:white !important;padding:6px;}
-  .lbl {font-weight:bold;background:#e0e0e0 !important;padding:4px 8px;font-size:9pt;}
+  .lbl {font-weight:bold;background:#e0e0e0 !important;padding:4px 8px;font-size:9pt;display:block;}
   .bt  {width:100%;border-collapse:collapse;}
   .bt td{border:1px solid #aaa;font-size:9pt;}
   .footer{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding-top:6px;font-size:8pt;color:#555;border-top:2px solid #00897b;}
-  .f-left  {text-align:left;}
-  .f-center{text-align:center;font-weight:700;color:#00695c;font-size:9pt;}
-  .f-right {text-align:right;}
+  .f-left{text-align:left;} .f-center{text-align:center;font-weight:700;color:#00695c;font-size:9pt;} .f-right{text-align:right;}
 </style></head>
 <body>
   ${cover}
   ${wiPages}
-  ${!screen ? '<scr'+'ipt>window.onload=()=>{setTimeout(()=>window.print(),400);}</scr'+'ipt>' : ""}
+  ${!screen?'<scr'+'ipt>window.onload=()=>{setTimeout(()=>window.print(),400);}</scr'+'ipt>':""}
 </body></html>`;
   }
 
@@ -2418,17 +2457,18 @@ function WiTaskEditor({ task, onUpdate, onDelete, confirmDelete }) {
   const imgRef = useRef();
   const [collapsed, setCollapsed] = useState(true);
 
-  const addCustomField = (type) => u("customFields",[...(task.customFields||[]), mkWiCustomField(type)]);
-  const updCustomField = (i,f,v) => { const cf=[...(task.customFields||[])]; cf[i]={...cf[i],[f]:v}; u("customFields",cf); };
-  const delCustomField = (i) => u("customFields",(task.customFields||[]).filter((_,j)=>j!==i));
-
   const addImage = (src) => u("wiImages",[...(task.wiImages||[]), mkWiImage(src)]);
   const updImage = (i,f,v) => { const imgs=[...(task.wiImages||[])]; imgs[i]={...imgs[i],[f]:v}; u("wiImages",imgs); };
   const delImage = (i) => u("wiImages",(task.wiImages||[]).filter((_,j)=>j!==i));
-  const readImg = (file) => { const r=new FileReader(); r.onload=e=>addImage(e.target.result); r.readAsDataURL(file); };
+  const readImg  = (file) => { const r=new FileReader(); r.onload=e=>addImage(e.target.result); r.readAsDataURL(file); };
+
+  const addField = (cols) => u("customFields",[...(task.customFields||[]), mkWiCustomField(cols)]);
+  const updField = (i,f,v) => { const cf=[...(task.customFields||[])]; cf[i]={...cf[i],[f]:v}; u("customFields",cf); };
+  const delField = (i) => u("customFields",(task.customFields||[]).filter((_,j)=>j!==i));
 
   return (
     <div style={{border:"1px solid #e0e0e0",borderRadius:8,marginBottom:8,background:"white"}}>
+      {/* Header */}
       <div onClick={()=>setCollapsed(c=>!c)}
         style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",cursor:"pointer",
                 background:collapsed?"#fafafa":"#e0f2f1",borderRadius:collapsed?"8px":"8px 8px 0 0",userSelect:"none"}}>
@@ -2443,24 +2483,25 @@ function WiTaskEditor({ task, onUpdate, onDelete, confirmDelete }) {
 
       {!collapsed && (
         <div style={{padding:16}}>
+
           {/* Title + Part fields */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 2fr",gap:10,marginBottom:14}}>
             <div>
-              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:3}}>Task Title *</label>
+              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:3,fontWeight:600}}>Task Title *</label>
               <input value={task.description||""} onChange={e=>u("description",e.target.value)}
-                placeholder="e.g. GEN6 Battery Box Back Panel"
+                placeholder="e.g. 6 Inch Mast"
                 style={{width:"100%",padding:"5px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12}}/>
             </div>
             <div>
-              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:3}}>Part No.</label>
+              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:3,fontWeight:600}}>Part No.</label>
               <input value={task.partNo||""} onChange={e=>u("partNo",e.target.value)}
                 placeholder="e.g. 547781"
                 style={{width:"100%",padding:"5px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12}}/>
             </div>
             <div>
-              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:3}}>Part Description</label>
+              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:3,fontWeight:600}}>Part Description</label>
               <input value={task.partDesc||""} onChange={e=>u("partDesc",e.target.value)}
-                placeholder="e.g. GEN6 MMS, Battery Box, Back Panel"
+                placeholder="e.g. GEN6 MMS Battery Box Back Panel"
                 style={{width:"100%",padding:"5px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12}}/>
             </div>
           </div>
@@ -2469,56 +2510,56 @@ function WiTaskEditor({ task, onUpdate, onDelete, confirmDelete }) {
           <div style={{marginBottom:14}}>
             <label style={{fontSize:11,color:"#555",display:"block",marginBottom:6,fontWeight:600}}>
               📷 Images
-              <span style={{fontWeight:400,color:"#aaa",marginLeft:6}}>— figures auto-numbered in PDF</span>
+              <span style={{fontWeight:400,color:"#aaa",marginLeft:6}}>Full = one per row · Half = two per row · Third = three per row</span>
             </label>
             {(task.wiImages||[]).map((img,i)=>(
               <div key={img.id} style={{border:"1px solid #e0e0e0",borderRadius:7,padding:10,marginBottom:8,background:"#fafafa"}}>
                 <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-                  {/* Thumbnail */}
                   <div style={{position:"relative",flexShrink:0}}>
-                    <img src={img.src} alt="" style={{width:120,height:90,objectFit:"cover",borderRadius:5,border:"1px solid #ddd",display:"block"}}/>
+                    <img src={img.src} alt="" style={{width:100,height:75,objectFit:"cover",borderRadius:5,border:"1px solid #ddd",display:"block"}}/>
                     <button onClick={()=>delImage(i)}
                       style={{position:"absolute",top:-7,right:-7,background:"#e53935",color:"white",border:"none",
                               borderRadius:"50%",width:20,height:20,cursor:"pointer",fontSize:11,lineHeight:"20px",textAlign:"center",padding:0}}>✕</button>
                     <div style={{position:"absolute",bottom:0,left:0,background:"rgba(0,105,92,0.85)",color:"white",
-                                 fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:"0 0 0 5px"}}>
-                      Fig. {i+1}
-                    </div>
+                                 fontSize:9,fontWeight:700,padding:"2px 5px",borderRadius:"0 0 0 5px"}}>Fig. {i+1}</div>
                   </div>
-                  {/* Controls */}
                   <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
                     <input value={img.caption||""} onChange={e=>updImage(i,"caption",e.target.value)}
                       placeholder={`Figure ${i+1} caption (optional)`}
                       style={{width:"100%",padding:"4px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12}}/>
-                    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                      {/* Size */}
                       <div style={{display:"flex",alignItems:"center",gap:4,fontSize:11}}>
                         <span style={{color:"#555",fontWeight:600}}>Size:</span>
-                        {[["full","Full width"],["half","Half"],["third","Third"]].map(([val,lbl])=>(
+                        {[["full","Full"],["half","Half"],["third","Third"]].map(([val,lbl])=>(
                           <label key={val} style={{display:"flex",alignItems:"center",gap:3,cursor:"pointer",
                                                    padding:"2px 8px",borderRadius:4,fontSize:11,
                                                    background:img.size===val?TEAL_LIGHT:"white",
                                                    border:`1px solid ${img.size===val?TEAL:"#ddd"}`}}>
-                            <input type="radio" name={`size_${img.id}`} value={val}
+                            <input type="radio" name={`sz_${img.id}`} value={val}
                               checked={img.size===val} onChange={()=>updImage(i,"size",val)}
                               style={{accentColor:TEAL,margin:0}}/>
                             {lbl}
                           </label>
                         ))}
                       </div>
-                      <div style={{display:"flex",alignItems:"center",gap:4,fontSize:11}}>
-                        <span style={{color:"#555",fontWeight:600}}>Align:</span>
-                        {[["left","◀"],["center","■"],["right","▶"]].map(([val,lbl])=>(
-                          <label key={val} title={val} style={{display:"flex",alignItems:"center",gap:3,cursor:"pointer",
-                                                   padding:"2px 8px",borderRadius:4,fontSize:12,
-                                                   background:img.align===val?TEAL_LIGHT:"white",
-                                                   border:`1px solid ${img.align===val?TEAL:"#ddd"}`}}>
-                            <input type="radio" name={`align_${img.id}`} value={val}
-                              checked={img.align===val} onChange={()=>updImage(i,"align",val)}
-                              style={{accentColor:TEAL,margin:0}}/>
-                            {lbl}
-                          </label>
-                        ))}
-                      </div>
+                      {/* Align — only for full width */}
+                      {img.size==="full" && (
+                        <div style={{display:"flex",alignItems:"center",gap:4,fontSize:11}}>
+                          <span style={{color:"#555",fontWeight:600}}>Align:</span>
+                          {[["left","◀ Left"],["center","■ Center"],["right","▶ Right"]].map(([val,lbl])=>(
+                            <label key={val} style={{display:"flex",alignItems:"center",gap:3,cursor:"pointer",
+                                                     padding:"2px 8px",borderRadius:4,fontSize:11,
+                                                     background:img.align===val?TEAL_LIGHT:"white",
+                                                     border:`1px solid ${img.align===val?TEAL:"#ddd"}`}}>
+                              <input type="radio" name={`al_${img.id}`} value={val}
+                                checked={(img.align||"center")===val} onChange={()=>updImage(i,"align",val)}
+                                style={{accentColor:TEAL,margin:0}}/>
+                              {lbl}
+                            </label>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2533,20 +2574,7 @@ function WiTaskEditor({ task, onUpdate, onDelete, confirmDelete }) {
               onChange={e=>{if(e.target.files[0])readImg(e.target.files[0]);e.target.value="";}}/>
           </div>
 
-          {/* Setup instructions */}
-          <div style={{marginBottom:12}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-              <label style={{fontSize:11,color:"#555",fontWeight:600}}>Section Label:</label>
-              <input value={task.setupLabel||"Setup / Positioning Instructions"}
-                onChange={e=>u("setupLabel",e.target.value)}
-                style={{fontSize:11,padding:"2px 6px",border:"1px solid #ddd",borderRadius:4,color:"#333",width:280}}
-                placeholder="Rename this section…"/>
-            </div>
-            <AutoTextarea value={task.setupNotes||""} onChange={e=>u("setupNotes",e.target.value)}
-              placeholder="Enter setup or positioning instructions…" minRows={2}/>
-          </div>
-
-          {/* Work instructions */}
+          {/* Work Instructions */}
           <div style={{marginBottom:14}}>
             <label style={{fontSize:11,color:"#555",display:"block",marginBottom:4,fontWeight:600}}>Work Instructions / Notes</label>
             <AutoTextarea value={task.workInstructions||""} onChange={e=>u("workInstructions",e.target.value)}
@@ -2556,43 +2584,70 @@ function WiTaskEditor({ task, onUpdate, onDelete, confirmDelete }) {
           {/* Custom fields */}
           {(task.customFields||[]).length>0 && (
             <div style={{marginBottom:10}}>
-              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:6,fontWeight:600}}>Custom Fields</label>
+              <label style={{fontSize:11,color:"#555",display:"block",marginBottom:6,fontWeight:600}}>Custom Sections</label>
               {(task.customFields||[]).map((cf,i)=>(
-                <div key={cf.id} style={{display:"flex",gap:6,alignItems:"flex-start",marginBottom:6}}>
-                  <input value={cf.label} onChange={e=>updCustomField(i,"label",e.target.value)}
-                    placeholder={cf.type==="kv"?"Label e.g. Load Bar Qty":"Section heading"}
-                    style={{padding:"5px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12,width:cf.type==="kv"?180:220,flexShrink:0}}/>
-                  {cf.type==="kv" ? (
-                    <input value={cf.value} onChange={e=>updCustomField(i,"value",e.target.value)}
-                      placeholder="Value e.g. 4"
-                      style={{flex:1,padding:"5px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12}}/>
+                <div key={cf.id} style={{border:"1px solid #e0e0e0",borderRadius:6,marginBottom:8,overflow:"hidden"}}>
+                  {/* field header row */}
+                  <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 8px",background:"#f5f5f5",borderBottom:"1px solid #e0e0e0"}}>
+                    <span style={{fontSize:10,color:"#888",fontWeight:600}}>COLUMNS:</span>
+                    {[1,2].map(c=>(
+                      <label key={c} style={{display:"flex",alignItems:"center",gap:3,cursor:"pointer",fontSize:11,
+                                             padding:"2px 8px",borderRadius:4,
+                                             background:cf.cols===c?TEAL_LIGHT:"white",
+                                             border:`1px solid ${cf.cols===c?TEAL:"#ddd"}`}}>
+                        <input type="radio" name={`cols_${cf.id}`} value={c}
+                          checked={cf.cols===c} onChange={()=>updField(i,"cols",c)}
+                          style={{accentColor:TEAL,margin:0}}/>
+                        {c===1?"1 — Full width":"2 — Side by side"}
+                      </label>
+                    ))}
+                    <button onClick={()=>delField(i)}
+                      style={{marginLeft:"auto",background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:4,
+                              padding:"2px 7px",cursor:"pointer",color:"#c62828",fontSize:11}}>✕</button>
+                  </div>
+                  {/* field content */}
+                  {cf.cols===1 ? (
+                    <div style={{padding:8,display:"flex",flexDirection:"column",gap:5}}>
+                      <input value={cf.label||""} onChange={e=>updField(i,"label",e.target.value)}
+                        placeholder="Section heading"
+                        style={{padding:"4px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12,fontWeight:600}}/>
+                      <AutoTextarea value={cf.value||""} onChange={e=>updField(i,"value",e.target.value)}
+                        placeholder="Content…" minRows={2}/>
+                    </div>
                   ) : (
-                    <AutoTextarea value={cf.value||""} onChange={e=>updCustomField(i,"value",e.target.value)}
-                      placeholder="Content for this section…" minRows={2} style={{flex:1}}/>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:0}}>
+                      {[[cf.label,cf.value,"label","value"],[cf.label2,cf.value2,"label2","value2"]].map(([lbl,val,lk,vk],ci)=>(
+                        <div key={ci} style={{padding:8,borderRight:ci===0?"1px solid #e0e0e0":"none",display:"flex",flexDirection:"column",gap:5}}>
+                          <input value={lbl||""} onChange={e=>updField(i,lk,e.target.value)}
+                            placeholder={`Column ${ci+1} heading`}
+                            style={{padding:"4px 8px",border:"1px solid #ccc",borderRadius:5,fontSize:12,fontWeight:600}}/>
+                          <AutoTextarea value={val||""} onChange={e=>updField(i,vk,e.target.value)}
+                            placeholder="Content…" minRows={2}/>
+                        </div>
+                      ))}
+                    </div>
                   )}
-                  <button onClick={()=>delCustomField(i)}
-                    style={{background:"#ffebee",border:"1px solid #ef9a9a",borderRadius:4,padding:"4px 7px",cursor:"pointer",color:"#c62828",fontSize:11,flexShrink:0,marginTop:1}}>✕</button>
                 </div>
               ))}
             </div>
           )}
           <div style={{display:"flex",gap:6}}>
-            <button onClick={()=>addCustomField("kv")}
-              style={{fontSize:11,padding:"4px 10px",background:"#f5f5f5",border:"1px solid #ddd",borderRadius:5,cursor:"pointer",color:"#555"}}>
-              + Key-Value Pair
+            <button onClick={()=>addField(1)}
+              style={{fontSize:11,padding:"5px 12px",background:"#f5f5f5",border:"1px solid #ddd",borderRadius:5,cursor:"pointer",color:"#555"}}>
+              + 1-Column Section
             </button>
-            <button onClick={()=>addCustomField("text")}
-              style={{fontSize:11,padding:"4px 10px",background:"#f5f5f5",border:"1px solid #ddd",borderRadius:5,cursor:"pointer",color:"#555"}}>
-              + Text Block
+            <button onClick={()=>addField(2)}
+              style={{fontSize:11,padding:"5px 12px",background:"#f5f5f5",border:"1px solid #ddd",borderRadius:5,cursor:"pointer",color:"#555"}}>
+              + 2-Column Section
             </button>
           </div>
+
         </div>
       )}
     </div>
   );
 }
 
-// ─── Station Editor ───────────────────────────────────────────────────────────
 function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPreview, allStations, lineName="", stationIdentifier="", stationHandle=null, onStationHandle=null, confirmDelete=null }) {
   const u=(f,v)=>{
     const upd={...station,[f]:v};
