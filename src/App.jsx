@@ -3425,342 +3425,430 @@ function LineBalance({ stations, lines }) {
   const [scope,        setScope]       = useState("all");
   const [selLineId,    setSelLineId]   = useState(String(lines[0]?.id || ""));
   const [selStationId, setSelStationId]= useState(String(stations[0]?.id || ""));
-  const [taktRaw,      setTaktRaw]     = useState(""); // user input — seconds or MM:SS
+  const [taktRaw,      setTaktRaw]     = useState("");
 
-  // Parse TAKT time using same logic as cycle times
   const taktMin = taktRaw.trim() ? parseTime(taktRaw) : null;
-
-  // Always compare as strings to avoid number/string type mismatch from select values
-  const validLineId    = lines.find(l=>String(l.id)===String(selLineId))    ? selLineId    : String(lines[0]?.id||"");
+  const validLineId    = lines.find(l=>String(l.id)===String(selLineId)) ? selLineId : String(lines[0]?.id||"");
   const validStationId = stations.find(s=>String(s.id)===String(selStationId)) ? selStationId : String(stations[0]?.id||"");
 
-  // ── Determine which stations to analyse ──────────────────────────────────
+  // ── Cycle time for any station (handles both standard and WI) ──────────────
+  const stationCT = (s) => {
+    if(s.stationType === "wi") {
+      // Prefer sum of task-level cycleTime; fall back to legacy wiCycleTime
+      const taskSum = (s.tasks||[]).reduce((acc,t)=>acc+parseTime(t.cycleTime||"0"),0);
+      if(taskSum > 0) return taskSum;
+      return parseTime(s.wiCycleTime||"0");
+    }
+    return sumTasks(s.tasks||[]);
+  };
+
+  // ── Scoped data ────────────────────────────────────────────────────────────
   const scopedStations = (() => {
-    if(scope === "line") {
+    if(scope==="line") {
       const line = lines.find(l=>String(l.id)===String(validLineId));
       if(!line) return [];
       return line.stationIds.map(id=>stations.find(s=>s.id===id)).filter(Boolean);
     }
-    if(scope === "station") {
-      const s = stations.find(s=>String(s.id)===validStationId);
+    if(scope==="station") {
+      const s = stations.find(s=>String(s.id)===String(validStationId));
       return s ? [s] : [];
     }
     return stations;
   })();
 
-  const isSingleStation = scope === "station" && scopedStations.length === 1;
+  const isSingleStation = scope==="station" && scopedStations.length===1;
   const singleStation   = isSingleStation ? scopedStations[0] : null;
 
+  // Data rows — station view OR task drill-down
   const data = isSingleStation
-    ? singleStation.tasks.map(t=>({
-        id:t.id, name:`Task ${t.taskNo}: ${t.description||"(untitled)"}`,
-        sopId:t.taskId, total:sumSteps(t.steps),
-        tasks:1, steps:t.steps.length,
-      }))
+    ? (singleStation.stationType==="wi"
+        ? (singleStation.tasks||[]).map(t=>({
+            id:t.id,
+            name:`${t.description||"(untitled)"}`,
+            sopId:t.taskId||"",
+            total:parseTime(t.cycleTime||"0"),
+            tasks:1, steps:0, isWiTask:true,
+          }))
+        : (singleStation.tasks||[]).map(t=>({
+            id:t.id,
+            name:`Task ${t.taskNo}: ${t.description||"(untitled)"}`,
+            sopId:t.taskId,
+            total:sumSteps(t.steps||[]),
+            tasks:1, steps:(t.steps||[]).length,
+          }))
+      )
     : scopedStations.map(s=>({
         id:s.id, name:s.stationNo||s.sopId||"Station",
-        sopId:s.sopId, total: s.stationType==="wi"
-          ? s.tasks.reduce((acc,t)=>acc+parseTime(t.cycleTime||"0"),0)
-          : sumTasks(s.tasks),
-        tasks:s.tasks.length, steps:s.stationType==="wi" ? 0 : s.tasks.reduce((n,t)=>n+t.steps.length,0),
+        label:s.stationDesc||"",
+        sopId:s.sopId, total:stationCT(s),
+        tasks:(s.tasks||[]).length,
+        steps:s.stationType==="wi" ? 0 : (s.tasks||[]).reduce((n,t)=>n+(t.steps||[]).length,0),
+        isWI: s.stationType==="wi",
       }));
 
-  const max    = Math.max(...data.map(d=>d.total), taktMin||0, 0.01);
-  const avg    = data.length ? data.reduce((s,d)=>s+d.total,0)/data.length : 0;
-  // Reference line for chart — TAKT if set, otherwise avg
-  const refLine = taktMin || avg;
+  const total  = data.reduce((s,d)=>s+d.total, 0);
+  const avg    = data.length ? total/data.length : 0;
+  const max    = data.reduce((a,b)=>b.total>a.total?b:a, data[0]||{total:0});
+  const min    = data.filter(d=>d.total>0).reduce((a,b)=>b.total<a.total?b:a, data.find(d=>d.total>0)||{total:0});
+  const timedCount = data.filter(d=>d.total>0).length;
 
-  const scopeLabel = scope==="line"
-    ? (lines.find(l=>l.id===validLineId)?.name || "Line")
-    : scope==="station"
-      ? (stations.find(s=>String(s.id)===validStationId)?.stationNo || "Station")
-      : "All Stations";
+  // ── Statistics ─────────────────────────────────────────────────────────────
+  const efficiency   = taktMin&&taktMin>0 ? Math.min(100,Math.round((avg/taktMin)*100)) : null;
+  const balanceLoss  = taktMin&&taktMin>0 ? data.length*taktMin - total : null;
+  const overTaktCt   = taktMin ? data.filter(d=>d.total>taktMin).length : 0;
+  const unitsPerShift= taktMin&&taktMin>0 ? Math.floor(480/taktMin) : null;
+  const smoothness   = avg>0 ? Math.round((1 - data.reduce((s,d)=>s+Math.pow(d.total-avg,2),0)/data.length/Math.pow(avg,2))*100) : null;
 
-  const [aiAnalysis,   setAiAnalysis]   = useState("");
+  // ── Chart ──────────────────────────────────────────────────────────────────
+  const chartMax  = Math.max(taktMin||0, max?.total||0, 0.01);
+  const barW      = Math.max(20, Math.min(60, Math.floor(680/Math.max(data.length,1))-4));
 
-  const openInClaude = () => {
-    const stationRows = data.map(d => {
-      const vsRef = taktMin
-        ? `${d.total > taktMin ? "+" : ""}${fmtTime(d.total - taktMin)} vs TAKT`
-        : `${d.total > avg ? "+" : ""}${fmtTime(d.total - avg)} vs avg`;
-      return `| ${d.sopId||d.name} | ${d.name} | ${fmtTime(d.total)} | ${vsRef} | ${d.tasks} tasks / ${d.steps} steps |`;
-    }).join("\n");
+  const scopeLabel = scope==="all" ? "All Stations"
+    : scope==="line" ? (lines.find(l=>String(l.id)===String(validLineId))?.name||"Line")
+    : (singleStation?.stationNo||"Station");
 
-    const prompt = `You are a lean manufacturing engineer at Live View Technologies analyzing a production line balance for trailer assembly.
-
-## Line Balance Data
-
-**Line:** ${scopeLabel}
-**TAKT Time:** ${taktMin ? fmtTime(taktMin) : "not set"}
-**Average Cycle Time:** ${fmtTime(avg)}
-**Number of ${isSingleStation?"Tasks":"Stations"}:** ${data.length}
-**Total Cycle Time:** ${fmtTime(data.reduce((s,d)=>s+d.total,0))}
-
-| SOP ID | ${isSingleStation?"Task":"Station"} | Cycle Time | vs ${taktMin?"TAKT":"Avg"} | Content |
-|--------|---------|------------|---------|---------|
-${stationRows}
-
-## Please Analyze:
-
-1. **Balance Assessment** — How well balanced is this line? What is the line efficiency (total CT / stations / TAKT)?
-2. **Bottlenecks** — Which ${isSingleStation?"tasks":"stations"} exceed TAKT or are significantly overloaded?
-3. **Underloaded** — Which ${isSingleStation?"tasks":"stations"} have significant spare capacity that could absorb work?
-4. **Rebalancing Recommendations** — Specific suggestions for redistributing work between ${isSingleStation?"tasks":"stations"} to bring all cycle times closer to TAKT.
-5. **Priority Actions** — What are the top 3 things to address first?
-
-Be specific and practical. Reference the actual station/task names from the data above.`;
-
-    // Copy to clipboard and open Claude
-    navigator.clipboard.writeText(prompt).then(() => {
-      setAiAnalysis("✓ Analysis prompt copied to clipboard! Opening Claude in a new tab — paste the prompt to begin analysis.");
-    }).catch(() => {
-      setAiAnalysis("Opening Claude in a new tab. Copy the prompt below and paste it into Claude:\n\n" + prompt);
-    });
-    window.open("https://claude.ai/new", "_blank", "noopener");
+  // ── Export CSV ──────────────────────────────────────────────────────────────
+  const exportCSV = () => {
+    const headers = ["Name","SOP ID","Cycle Time (min)","vs Avg","vs TAKT"];
+    const rows = data.map(d=>[
+      d.name, d.sopId||"",
+      d.total.toFixed(3),
+      (d.total-avg).toFixed(3),
+      taktMin ? (d.total-taktMin).toFixed(3) : "",
+    ]);
+    const csv = [headers,...rows].map(r=>r.map(c=>`"${c}"`).join(",")).join("\r\n");
+    const a=document.createElement("a");
+    a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);
+    a.download=`LineBalance_${scopeLabel.replace(/\s+/g,"_")}_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
   };
 
-  if(!stations.length) return (
-    <div style={{textAlign:"center",padding:80,color:"#bbb"}}>
-      <div style={{fontSize:48}}>📊</div>
-      <div style={{marginTop:10,fontSize:15}}>Add stations with step cycle times to see the line balance.</div>
-    </div>
-  );
+  // ── PDF Report ─────────────────────────────────────────────────────────────
+  const exportPDFReport = () => {
+    const today = new Date().toLocaleDateString();
+    const statRows = data.map((d,i)=>{
+      const overT = taktMin&&d.total>taktMin;
+      const nearT = taktMin&&d.total>taktMin*0.9;
+      const bg = i%2===0?"#fff":"#f9f9f9";
+      const ctColor = overT?"#c62828":nearT?"#e65100":"#00695c";
+      return `<tr style="background:${bg}">
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;">${d.name}${d.label?`<br/><span style="font-size:8pt;color:#888">${d.label}</span>`:""}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;font-family:monospace;font-size:9pt;">${d.sopId||""}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:700;color:${ctColor};">${d.total>0?fmtTime(d.total):"—"}</td>
+        <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;color:${d.total>=avg?"#c62828":"#2e7d32"};">${d.total>0?(d.total>=avg?"+":"")+fmtTime(Math.abs(d.total-avg)):"—"}</td>
+        ${taktMin?`<td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:center;">${d.total===0?"—":overT?"🔴 Over":nearT?"⚠️ Near":"✅ OK"}</td>`:""}
+      </tr>`;
+    }).join("");
+
+    const statCards = [
+      ["Total Cycle Time", fmtTime(total)],
+      ["Average / Station", fmtTime(avg)],
+      ["Bottleneck", max?.name ? `${max.name} (${fmtTime(max.total)})` : "—"],
+      taktMin ? ["Line Efficiency", efficiency+"%"] : null,
+      taktMin ? ["Balance Loss", fmtTime(balanceLoss)] : null,
+      taktMin ? ["Units / 8hr Shift", unitsPerShift||"—"] : null,
+      taktMin ? ["Stations Over TAKT", overTaktCt+" of "+data.length] : null,
+    ].filter(Boolean).map(([l,v])=>`
+      <div style="flex:1 1 140px;border:1px solid #b2dfdb;border-radius:8px;padding:12px;background:#f8fffe;">
+        <div style="font-size:9pt;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">${l}</div>
+        <div style="font-size:18pt;font-weight:800;color:#00695c">${v}</div>
+      </div>`).join("");
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+<title>Line Balance Report — ${scopeLabel}</title>
+<style>
+  * { box-sizing:border-box; font-family:Arial,sans-serif; }
+  body { margin:0.5in; font-size:10pt; color:#222; }
+  @page { size:8.5in 11in; margin:0.5in; }
+  h1 { font-size:16pt; color:#00695c; margin:0 0 4px; }
+  h2 { font-size:12pt; color:#00695c; margin:18px 0 8px; border-bottom:2px solid #e0f2f1; padding-bottom:4px; }
+  table { width:100%; border-collapse:collapse; font-size:10pt; }
+  th { background:#00897b; color:white; padding:6px 8px; text-align:left; }
+  .cards { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; }
+  .footer { margin-top:24px; font-size:8pt; color:#aaa; border-top:1px solid #eee; padding-top:6px; }
+</style></head><body>
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+  <div>
+    <h1>Line Balance Report</h1>
+    <div style="font-size:11pt;color:#555;">${scopeLabel}</div>
+    <div style="font-size:9pt;color:#aaa;margin-top:2px;">Generated: ${today} · ${data.length} ${isSingleStation?"task(s)":"station(s)"} · ${timedCount} timed</div>
+  </div>
+  <div style="text-align:right;font-size:9pt;color:#555;">
+    <div style="font-weight:700;font-size:14pt;color:#00695c;">LVT</div>
+    <div>SOP Builder</div>
+    ${taktMin?`<div style="color:#c62828;font-weight:700;">TAKT: ${fmtTime(taktMin)}</div>`:""}
+  </div>
+</div>
+<h2>Summary</h2>
+<div class="cards">${statCards}</div>
+<h2>${isSingleStation?"Task Breakdown":"Station Breakdown"}</h2>
+<table>
+  <thead><tr>
+    <th>Name</th><th>SOP ID</th><th style="text-align:right">Cycle Time</th>
+    <th style="text-align:right">vs Avg</th>
+    ${taktMin?`<th style="text-align:center">vs TAKT</th>`:""}
+  </tr></thead>
+  <tbody>${statRows}</tbody>
+</table>
+<div class="footer">LVT SOP Builder · Line Balance Report · ${today}${taktMin?" · TAKT: "+fmtTime(taktMin):""}</div>
+<script>window.onload=()=>{setTimeout(()=>window.print(),400);}<\/script>
+</body></html>`;
+    const w = window.open("","_blank");
+    w.document.open(); w.document.write(html); w.document.close();
+  };
+
+  // ── AI prompt ──────────────────────────────────────────────────────────────
+  const openInClaude = () => {
+    const rows = data.filter(d=>d.total>0).map(d=>`| ${d.name} | ${fmtTime(d.total)} | ${taktMin?(d.total>taktMin?"OVER":"ok"):"—"} |`).join("\n");
+    const prompt = `You are a lean manufacturing engineer. Analyze this line balance data for LVT (Live View Technologies) and provide specific rebalancing recommendations.\n\n**Scope:** ${scopeLabel}\n**TAKT Time:** ${taktMin?fmtTime(taktMin):"Not set"}\n**Average Cycle Time:** ${fmtTime(avg)}\n**Line Efficiency:** ${efficiency!==null?efficiency+"%":"N/A"}\n**Balance Loss:** ${balanceLoss!==null?fmtTime(balanceLoss):"N/A"}\n\n| Station/Task | Cycle Time | vs TAKT |\n|---|---|---|\n${rows}\n\nProvide:\n1. Overall efficiency assessment\n2. Bottleneck identification\n3. Specific rebalancing recommendations (quantified)\n4. Priority actions`;
+    navigator.clipboard?.writeText(prompt).catch(()=>{});
+    window.open("https://claude.ai","_blank","noopener");
+  };
 
   return (
     <div>
-      {/* ── Scope + TAKT bar ── */}
+      {/* ── Scope + TAKT bar ─────────────────────────────────────────────── */}
       <div style={{background:"#f9f9f9",border:"1px solid #e0e0e0",borderRadius:8,padding:"10px 16px",
                    marginBottom:16,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-
         <span style={{fontWeight:600,fontSize:12,color:"#555",flexShrink:0}}>Analyse:</span>
 
-        {/* All */}
         <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer",fontSize:12,flexShrink:0}}>
           <input type="radio" name="lbscope" checked={scope==="all"} onChange={()=>setScope("all")} style={{accentColor:TEAL}}/>
           All Stations
         </label>
 
-        {/* Line — use string IDs throughout to avoid type mismatch */}
-        {lines.length > 0 && (
+        {lines.length>0 && (
           <div style={{display:"flex",alignItems:"center",gap:5,fontSize:12}}>
             <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
               <input type="radio" name="lbscope" checked={scope==="line"} onChange={()=>setScope("line")} style={{accentColor:TEAL}}/>
               Line:
             </label>
-            <select
-              value={validLineId}
-              onChange={e=>{
-                setSelLineId(e.target.value);
-                setScope("line");
-              }}
-              style={{padding:"2px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12,background:"white",maxWidth:180}}>
+            <select value={validLineId}
+              onChange={e=>{setSelLineId(e.target.value);setScope("line");}}
+              style={{padding:"2px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12,background:"white",maxWidth:200}}>
               {lines.map(l=>(
-                <option key={l.id} value={l.id}>{l.name||"(unnamed)"} ({l.stationIds.filter(id=>stations.find(s=>s.id===id)).length})</option>
+                <option key={l.id} value={String(l.id)}>{l.name||"(unnamed)"}</option>
               ))}
             </select>
           </div>
         )}
 
-        {/* Station */}
-        {stations.length > 0 && (
+        {stations.length>0 && (
           <div style={{display:"flex",alignItems:"center",gap:5,fontSize:12}}>
             <label style={{display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
               <input type="radio" name="lbscope" checked={scope==="station"} onChange={()=>setScope("station")} style={{accentColor:TEAL}}/>
               Station:
             </label>
-            <select
-              value={validStationId}
-              onChange={e=>{ setSelStationId(e.target.value); setScope("station"); }}
+            <select value={validStationId}
+              onChange={e=>{setSelStationId(e.target.value);setScope("station");}}
               style={{padding:"2px 6px",border:"1px solid #ccc",borderRadius:4,fontSize:12,background:"white",maxWidth:200}}>
               {stations.map(s=>(
                 <option key={String(s.id)} value={String(s.id)}>
-                  {s.stationNo||s.sopId||"Station"}{s.stationDesc?" — "+s.stationDesc:""}
+                  {s.stationNo||s.sopId||"Station"}{s.stationDesc?` — ${s.stationDesc}`:""}
                 </option>
               ))}
             </select>
           </div>
         )}
 
-        {/* Divider */}
         <div style={{width:1,height:22,background:"#ddd",flexShrink:0,margin:"0 2px"}}/>
 
-        {/* TAKT */}
         <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,flexShrink:0}}>
           <span style={{fontWeight:700,color:"#c62828",fontSize:12}}>⏱ TAKT:</span>
-          <input
-            value={taktRaw}
-            onChange={e=>setTaktRaw(e.target.value)}
+          <input value={taktRaw} onChange={e=>setTaktRaw(e.target.value)}
             placeholder="MM:SS or secs"
-            title="Enter TAKT time as MM:SS (e.g. 1:30) or plain seconds (e.g. 90)"
-            style={{width:90,padding:"3px 7px",
-                    border:`2px solid ${taktMin?"#c62828":"#ccc"}`,
-                    borderRadius:5,fontSize:12,
-                    color:taktMin?"#c62828":"#444",
-                    fontWeight:taktMin?700:400}}
-          />
-          {taktMin && (
-            <button onClick={()=>setTaktRaw("")} title="Clear TAKT"
-              style={{background:"none",border:"none",color:"#bbb",cursor:"pointer",
-                      fontSize:13,padding:"0 2px",lineHeight:1}}>✕</button>
-          )}
+            style={{width:90,padding:"3px 7px",border:`2px solid ${taktMin?"#c62828":"#ccc"}`,
+                    borderRadius:5,fontSize:12,color:taktMin?"#c62828":"#444",fontWeight:taktMin?700:400}}/>
+          {taktMin&&<button onClick={()=>setTaktRaw("")}
+            style={{background:"none",border:"none",color:"#bbb",cursor:"pointer",fontSize:13,padding:"0 2px"}}>✕</button>}
         </div>
       </div>
 
-      {/* ── Header ── */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+      {/* ── Header + actions ─────────────────────────────────────────────── */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,flexWrap:"wrap",gap:8}}>
         <div>
           <h3 style={{margin:0,color:TEAL_DARK}}>
             Line Balance — {scopeLabel}
-            {isSingleStation && <span style={{fontSize:12,fontWeight:400,color:"#888",marginLeft:8}}>(task breakdown)</span>}
+            {isSingleStation&&<span style={{fontSize:12,fontWeight:400,color:"#888",marginLeft:8}}>
+              ({singleStation?.stationType==="wi"?"WI task breakdown":"step breakdown"})
+            </span>}
           </h3>
           <span style={{fontSize:12,color:"#888"}}>
-            Avg: {fmtTime(avg)}
-            {taktMin && <span style={{marginLeft:10,color:"#c62828",fontWeight:600}}>TAKT: {fmtTime(taktMin)}</span>}
-            {data.length > 0 && <span style={{marginLeft:10}}>{data.length} {isSingleStation?"task(s)":"station(s)"}</span>}
+            {data.length} {isSingleStation?"task(s)":"station(s)"}
+            &nbsp;·&nbsp;Total: {fmtTime(total)}
+            &nbsp;·&nbsp;Avg: {fmtTime(avg)}
+            {taktMin&&<span style={{marginLeft:8,color:"#c62828",fontWeight:600}}>TAKT: {fmtTime(taktMin)}</span>}
+            {timedCount<data.length&&<span style={{marginLeft:8,color:"#aaa"}}>({timedCount}/{data.length} timed)</span>}
           </span>
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <button onClick={openInClaude}
             style={{background:"linear-gradient(135deg,#5c35c9,#8b5cf6)",color:"white",border:"none",
-                    borderRadius:6,padding:"6px 14px",cursor:"pointer",fontSize:12,fontWeight:700,
-                    display:"flex",alignItems:"center",gap:5,
-                    boxShadow:"0 2px 6px rgba(92,53,201,0.25)"}}>
+                    borderRadius:6,padding:"6px 12px",cursor:"pointer",fontSize:12,fontWeight:700,
+                    display:"flex",alignItems:"center",gap:5,boxShadow:"0 2px 6px rgba(92,53,201,0.25)"}}>
             ✨ AI Analysis
           </button>
-          <button onClick={()=>exportCSV(scopedStations)}
-            style={{background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:6,padding:"6px 14px",cursor:"pointer",fontSize:12}}>
+          <button onClick={exportPDFReport}
+            style={{background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:6,padding:"6px 12px",cursor:"pointer",fontSize:12}}>
+            📄 PDF Report
+          </button>
+          <button onClick={exportCSV}
+            style={{background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:6,padding:"6px 12px",cursor:"pointer",fontSize:12}}>
             ⬇️ Export CSV
           </button>
         </div>
       </div>
 
-      {data.length === 0 ? (
-        <div style={{textAlign:"center",padding:40,color:"#bbb",background:"#f9f9f9",borderRadius:8}}>
-          No data for this selection.
+      {/* ── Stats cards ───────────────────────────────────────────────────── */}
+      {data.length>0 && (
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:16}}>
+          {[
+            {label:"Total", value:fmtTime(total)},
+            {label:"Average", value:fmtTime(avg)},
+            {label:"Bottleneck", value:max?.name||(max?.total>0?fmtTime(max.total):"—"), sub:max?.total>0&&max?.name?fmtTime(max.total):"", warn:taktMin&&max?.total>taktMin},
+            {label:"Fastest", value:min?.name||(min?.total>0?fmtTime(min.total):"—"), sub:min?.total>0&&min?.name?fmtTime(min.total):""},
+            taktMin?{label:"Efficiency", value:efficiency+"%", warn:efficiency<75}:null,
+            taktMin?{label:"Balance Loss", value:fmtTime(Math.max(0,balanceLoss)), warn:balanceLoss>total*0.2}:null,
+            taktMin?{label:"🔴 Over TAKT", value:overTaktCt+" / "+data.length, warn:overTaktCt>0}:null,
+            taktMin?{label:"Units/Shift", value:unitsPerShift||"—"}:null,
+          ].filter(Boolean).map((c,i)=>(
+            <div key={i} style={{flex:"1 1 100px",background:c.warn?"#fff8e1":"#f8fffe",
+                                  border:`1px solid ${c.warn?"#ffe082":"#b2dfdb"}`,
+                                  borderRadius:8,padding:"10px 14px"}}>
+              <div style={{fontSize:10,color:"#888",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.4px",marginBottom:3}}>{c.label}</div>
+              <div style={{fontSize:16,fontWeight:800,color:c.warn?"#e65100":TEAL_DARK,lineHeight:1.1}}>{c.value}</div>
+              {c.sub&&<div style={{fontSize:10,color:"#aaa",marginTop:2}}>{c.sub}</div>}
+            </div>
+          ))}
         </div>
-      ) : (<>
-        {/* ── Bar chart ── */}
-        <div style={{display:"flex",alignItems:"flex-end",gap:6,padding:"16px 8px 8px",
-                     background:"#f9fbe7",borderRadius:8,overflowX:"auto",marginBottom:16,minHeight:200,position:"relative"}}>
-          {data.map(d=>{
-            const pct     = (d.total/max)*100;
-            const refPct  = (refLine/max)*100;
-            const avgPct  = (avg/max)*100;
-            const overTakt= taktMin && d.total > taktMin;
-            const overAvg = !taktMin && d.total > avg*1.1;
-            const hot     = overTakt || overAvg;
-            const label   = isSingleStation
-              ? `Task ${d.sopId?.split("-").pop()||""}`
-              : d.name;
-            return (
-              <div key={d.id} style={{flex:"0 0 auto",width:isSingleStation?90:70,display:"flex",flexDirection:"column",alignItems:"center",position:"relative"}}>
-                <span style={{fontSize:10,fontWeight:700,color:hot?"#c62828":"#2e7d32",marginBottom:3}}>{fmtTime(d.total)}</span>
-                <div style={{width:isSingleStation?70:52,height:140,background:"#e8e8e8",
-                             borderRadius:"4px 4px 0 0",position:"relative",display:"flex",
-                             alignItems:"flex-end",overflow:"hidden"}}>
-                  <div style={{width:"100%",height:`${pct}%`,
-                               background:hot?"#e53935":TEAL,
-                               borderRadius:"4px 4px 0 0",transition:"height 0.4s"}}/>
-                  {/* Average line (orange) — only show when no TAKT */}
-                  {!taktMin && (
-                    <div style={{position:"absolute",bottom:`${avgPct}%`,left:0,right:0,height:2,background:"#ff6f00"}}/>
-                  )}
-                  {/* TAKT line (red) */}
-                  {taktMin && (
-                    <div style={{position:"absolute",bottom:`${refPct}%`,left:0,right:0,height:2,background:"#c62828"}}/>
-                  )}
-                  {/* When TAKT set, also show avg as dashed orange */}
-                  {taktMin && (
-                    <div style={{position:"absolute",bottom:`${avgPct}%`,left:0,right:0,height:1,background:"#ff6f00",opacity:0.5,borderTop:"1px dashed #ff6f00"}}/>
-                  )}
-                </div>
-                <span style={{fontSize:9,textAlign:"center",marginTop:3,color:"#555",
-                              maxWidth:isSingleStation?88:68,overflow:"hidden",
-                              textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}
-                      title={d.name}>{label}</span>
-              </div>
-            );
-          })}
-        </div>
+      )}
 
-        {/* Legend */}
-        <div style={{fontSize:11,color:"#888",marginBottom:12,display:"flex",gap:16,flexWrap:"wrap"}}>
-          {taktMin ? (<>
-            <span><span style={{color:"#c62828",fontWeight:700}}>— Red line</span> = TAKT time ({fmtTime(taktMin)})</span>
-            <span><span style={{color:"#ff6f00",fontWeight:700}}>- - Orange</span> = average ({fmtTime(avg)})</span>
-            <span><span style={{color:"#e53935",fontWeight:700}}>■ Red bar</span> = exceeds TAKT</span>
-          </>) : (<>
-            <span><span style={{color:"#ff6f00",fontWeight:700}}>— Orange line</span> = average ({fmtTime(avg)})</span>
-            <span><span style={{color:"#e53935",fontWeight:700}}>■ Red bar</span> = &gt;10% over average</span>
-          </>)}
-        </div>
+      {/* ── Bar chart ─────────────────────────────────────────────────────── */}
+      {data.length>0 ? (
+        <div style={{overflowX:"auto",paddingBottom:8}}>
+          <svg width={Math.max(680, data.length*(barW+4)+60)} height={280} style={{display:"block"}}>
+            {/* Grid lines */}
+            {[0.25,0.5,0.75,1].map(f=>{
+              const y = 20+200*(1-f*chartMax/chartMax);
+              const labelVal = f*chartMax;
+              return <g key={f}>
+                <line x1={40} x2={Math.max(680,data.length*(barW+4)+60)-10} y1={20+200*(1-f)} x2={Math.max(680,data.length*(barW+4)+60)-10} y2={20+200*(1-f)} stroke="#e8e8e8" strokeWidth={1}/>
+                <text x={36} y={20+200*(1-f)+4} textAnchor="end" fontSize={9} fill="#aaa">{fmtTime(chartMax*f).replace(" min","")}</text>
+              </g>;
+            })}
 
-        {/* ── Table ── */}
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+            {/* TAKT line */}
+            {taktMin&&taktMin>0&&(()=>{
+              const y = 20+200*(1-taktMin/chartMax);
+              return <g>
+                <line x1={40} x2={Math.max(680,data.length*(barW+4)+60)-10} y1={y} y2={y} stroke="#c62828" strokeWidth={2} strokeDasharray="6,3"/>
+                <text x={Math.max(680,data.length*(barW+4)+60)-8} y={y-4} textAnchor="end" fontSize={9} fill="#c62828" fontWeight="700">TAKT</text>
+              </g>;
+            })()}
+
+            {/* Avg line */}
+            {avg>0&&(()=>{
+              const y = 20+200*(1-avg/chartMax);
+              return <line x1={40} x2={Math.max(680,data.length*(barW+4)+60)-10} y1={y} y2={y} stroke="#e65100" strokeWidth={1.5} strokeDasharray="4,3" opacity={0.7}/>;
+            })()}
+
+            {/* Bars */}
+            {data.map((d,i)=>{
+              const h   = d.total>0 ? Math.max(2, 200*d.total/chartMax) : 4;
+              const x   = 44+i*(barW+4);
+              const y   = 20+200-h;
+              const overT  = taktMin&&d.total>taktMin;
+              const nearT  = taktMin&&d.total>taktMin*0.9;
+              const clr    = d.total===0?"#e0e0e0":overT?"#e53935":nearT?"#ff8f00":TEAL;
+              const lbl    = d.name.length>12 ? d.name.slice(0,11)+"…" : d.name;
+              return <g key={d.id}>
+                <rect x={x} y={y} width={barW} height={h} fill={clr} rx={3} opacity={d.total===0?0.4:1}/>
+                <text x={x+barW/2} y={y-4} textAnchor="middle" fontSize={8} fill={overT?"#c62828":TEAL_DARK} fontWeight="600">
+                  {d.total>0?fmtTime(d.total).replace(" min",""):"—"}
+                </text>
+                <text x={x+barW/2} y={240} textAnchor="middle" fontSize={Math.min(9,barW/1.5)} fill="#555"
+                  transform={barW<30?`rotate(-35,${x+barW/2},240)`:undefined}>{lbl}</text>
+              </g>;
+            })}
+
+            {/* Axes */}
+            <line x1={40} y1={20} x2={40} y2={220} stroke="#ccc" strokeWidth={1}/>
+            <line x1={40} y1={220} x2={Math.max(680,data.length*(barW+4)+60)-10} y2={220} stroke="#ccc" strokeWidth={1}/>
+          </svg>
+          {/* Legend */}
+          <div style={{display:"flex",gap:14,paddingLeft:44,fontSize:10,color:"#888",marginTop:4,flexWrap:"wrap"}}>
+            <span>🟩 OK</span>
+            {taktMin&&<><span>🟧 Near TAKT (&gt;90%)</span><span>🟥 Over TAKT</span></>}
+            <span>— — Avg</span>
+            {taktMin&&<span style={{color:"#c62828"}}>— — TAKT</span>}
+          </div>
+        </div>
+      ) : (
+        <div style={{textAlign:"center",padding:40,color:"#aaa",fontSize:13}}>
+          No stations in current scope. Add stations or change scope.
+        </div>
+      )}
+
+      {/* ── Detail table ──────────────────────────────────────────────────── */}
+      {data.length>0&&(
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,marginTop:16}}>
           <thead>
             <tr style={{background:TEAL,color:"white"}}>
-              {[isSingleStation?"Task ID":"SOP ID",
-                isSingleStation?"Task":"Station",
-                "Tasks","Steps","Cycle Time",
-                taktMin?"vs TAKT":"vs Avg"]
-                .map(h=><th key={h} style={{padding:"7px 10px",textAlign:"left",fontWeight:600}}>{h}</th>)}
+              <th style={{padding:"6px 10px",textAlign:"left"}}>{isSingleStation?"Task":"Station"}</th>
+              {!isSingleStation&&<th style={{padding:"6px 10px",textAlign:"left"}}>Description</th>}
+              <th style={{padding:"6px 10px",textAlign:"center"}}>{isSingleStation?"Type":"Tasks"}</th>
+              <th style={{padding:"6px 10px",textAlign:"right"}}>Cycle Time</th>
+              <th style={{padding:"6px 10px",textAlign:"right"}}>vs Avg</th>
+              {taktMin&&<th style={{padding:"6px 10px",textAlign:"right"}}>vs TAKT</th>}
+              {taktMin&&<th style={{padding:"6px 10px",textAlign:"center"}}>Status</th>}
             </tr>
           </thead>
           <tbody>
             {data.map((d,i)=>{
-              const ref  = taktMin || avg;
-              const diff = d.total - ref;
-              const over = taktMin ? d.total > taktMin : d.total > avg*1.1;
+              const overT = taktMin&&d.total>taktMin;
+              const nearT = taktMin&&d.total>taktMin*0.9;
               return (
-                <tr key={d.id} style={{background:i%2===0?"#f5f5f5":"white",borderBottom:"1px solid #e0e0e0"}}>
-                  <td style={{padding:"6px 10px",fontFamily:"monospace",color:TEAL_DARK,fontWeight:600}}>{d.sopId||"—"}</td>
-                  <td style={{padding:"6px 10px",maxWidth:220}}>{d.name}</td>
-                  <td style={{padding:"6px 10px",textAlign:"center"}}>{d.tasks}</td>
-                  <td style={{padding:"6px 10px",textAlign:"center"}}>{d.steps}</td>
-                  <td style={{padding:"6px 10px",fontWeight:600}}>{fmtTime(d.total)}</td>
-                  <td style={{padding:"6px 10px",fontWeight:600,color:over?"#c62828":diff<0?"#2e7d32":"#888"}}>
-                    {diff>0?"+":""}{fmtTime(Math.abs(diff))} {diff>0?"▲":diff<0?"▼":"—"}
+                <tr key={d.id} style={{background:i%2===0?"white":"#f9f9f9",borderBottom:"1px solid #eee"}}>
+                  <td style={{padding:"6px 10px",fontWeight:700,color:TEAL_DARK}}>{d.name}</td>
+                  {!isSingleStation&&<td style={{padding:"6px 10px",color:"#888",fontSize:11}}>{d.label||"—"}</td>}
+                  <td style={{padding:"6px 10px",textAlign:"center",color:"#888",fontSize:11}}>
+                    {isSingleStation?(d.isWiTask?"WI":d.steps+" steps"):((d.isWI?"📄 ":"")+d.tasks)}
                   </td>
+                  <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,
+                              color:d.total===0?"#ccc":overT?"#c62828":nearT?"#e65100":TEAL_DARK}}>
+                    {d.total>0?fmtTime(d.total):"—"}
+                  </td>
+                  <td style={{padding:"6px 10px",textAlign:"right",fontSize:11,
+                              color:d.total===0?"#ccc":d.total>=avg?"#c62828":"#2e7d32"}}>
+                    {d.total>0?((d.total>=avg?"+":"")+fmtTime(Math.abs(d.total-avg))):"—"}
+                  </td>
+                  {taktMin&&<td style={{padding:"6px 10px",textAlign:"right",fontSize:11,
+                              color:d.total===0?"#ccc":overT?"#c62828":"#2e7d32"}}>
+                    {d.total>0?((overT?"+":"")+fmtTime(Math.abs(d.total-taktMin))+(overT?" over":" under")):"—"}
+                  </td>}
+                  {taktMin&&<td style={{padding:"6px 10px",textAlign:"center"}}>
+                    {d.total===0?"—":overT?"🔴":nearT?"⚠️":"✅"}
+                  </td>}
                 </tr>
               );
             })}
           </tbody>
           <tfoot>
-            <tr style={{background:TEAL_LIGHT,fontWeight:700}}>
-              <td colSpan={4} style={{padding:"7px 10px"}}>Total / Average</td>
-              <td style={{padding:"7px 10px"}}>{fmtTime(data.reduce((s,d)=>s+d.total,0))}</td>
-              <td style={{padding:"7px 10px",color:taktMin?"#c62828":"#555"}}>
-                {taktMin ? `TAKT: ${fmtTime(taktMin)}` : `Avg: ${fmtTime(avg)}`}
-              </td>
+            <tr style={{background:"#e0f2f1",fontWeight:700}}>
+              <td colSpan={isSingleStation?1:2} style={{padding:"6px 10px",color:TEAL_DARK}}>TOTAL</td>
+              <td/>
+              <td style={{padding:"6px 10px",textAlign:"right",color:TEAL_DARK}}>{fmtTime(total)}</td>
+              <td style={{padding:"6px 10px",textAlign:"right",color:"#aaa"}}>—</td>
+              {taktMin&&<td colSpan={2}/>}
             </tr>
           </tfoot>
         </table>
-      </>)}
-
-      {/* ── AI prompt status ── */}
-      {aiAnalysis && (
-        <div style={{marginTop:20,border:"2px solid #8b5cf6",borderRadius:10,overflow:"hidden"}}>
-          <div style={{background:"linear-gradient(135deg,#5c35c9,#8b5cf6)",color:"white",
-                       padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontWeight:700,fontSize:13}}>✨ AI Analysis</span>
-            <button onClick={()=>setAiAnalysis("")}
-              style={{background:"rgba(255,255,255,0.2)",border:"none",color:"white",borderRadius:4,
-                      padding:"2px 8px",cursor:"pointer",fontSize:12}}>✕ Close</button>
-          </div>
-          <div style={{padding:"14px 18px",background:"#faf9ff",fontSize:13,color:"#444",lineHeight:1.7}}>
-            {aiAnalysis}
-          </div>
-        </div>
       )}
     </div>
   );
 }
 
 
-// ─── CSV Restore Tool ─────────────────────────────────────────────────────────
-// Parses a backup CSV produced by buildCSV() and reconstructs a full Line
-// with Stations → Tasks → Steps. Images and drawings cannot be recovered
-// from CSV (they were never exported), but all text content and cycle times
 // are restored. The created line is named "{detected name}_Restored".
 function CsvRestoreTool({ currentLines, currentStations, onClose, onRestore }) {
   const [step,       setStep]       = useState("pick"); // pick | preview | done
