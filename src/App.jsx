@@ -2498,7 +2498,7 @@ function RevisionLogPanel({ station, onUpdate, onRevChange, onEntryEdit }) {
 }
 
 // ─── Work Instruction Task Editor ─────────────────────────────────────────────
-function WiTaskEditor({ task, onUpdate, onDelete, confirmDelete }) {
+function WiTaskEditor({ task, onUpdate, onDelete, confirmDelete, dragProps={} }) {
   const u = (f,v) => onUpdate({...task,[f]:v});
   const imgRef = useRef();
   const [collapsed, setCollapsed] = useState(true);
@@ -2514,11 +2514,13 @@ function WiTaskEditor({ task, onUpdate, onDelete, confirmDelete }) {
   const delField = (i) => u("customFields",(task.customFields||[]).filter((_,j)=>j!==i));
 
   return (
-    <div style={{border:"1px solid #e0e0e0",borderRadius:8,marginBottom:8,background:"white"}}>
+    <div {...dragProps} style={{border:"1px solid #e0e0e0",borderRadius:8,marginBottom:8,background:"white"}}>
       {/* Header */}
       <div onClick={()=>setCollapsed(c=>!c)}
         style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",cursor:"pointer",
                 background:collapsed?"#fafafa":"#e0f2f1",borderRadius:collapsed?"8px":"8px 8px 0 0",userSelect:"none"}}>
+        <span style={{color:"#bbb",fontSize:16,cursor:"grab",flexShrink:0}}
+          onMouseDown={e=>e.stopPropagation()} title="Drag to reorder">⠿</span>
         <span style={{color:TEAL,fontSize:12}}>{collapsed?"▶":"▼"}</span>
         <span style={{fontWeight:700,fontSize:13,color:TEAL_DARK,flex:1}}>
           {task.description||"(untitled task)"}
@@ -2948,6 +2950,7 @@ function StationEditor({ station, isActive, onSelect, onUpdate, onDelete, onPrev
                 })()}
                 {station.tasks.map((task,i)=>(
                   <WiTaskEditor key={task.id} task={task}
+                    dragProps={taskDrag(i)}
                     onUpdate={t=>updTask(i,t)}
                     onDelete={()=>{ if(confirmDelete) confirmDelete("task",task.description||"this task",{stationId:station.id,taskIdx:i}); else delTask(i); }}
                     confirmDelete={confirmDelete}/>
