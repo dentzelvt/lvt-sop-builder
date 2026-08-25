@@ -648,9 +648,9 @@ const buildPrintHTML = (station, screen=false) => {
           </tr>
           ${station.tasks.map((t,i)=>`
           <tr style="background:${i%2===0?"white":"#fafafa"};">
-            <td style="padding:4px 6px;font-weight:700;color:#00695c;">${String(t.taskNo).padStart(2,"0")}</td>
+            <td style="padding:4px 6px;font-weight:700;color:#00695c;">${String(t.taskNo||i+1).padStart(2,"0")}</td>
             <td style="padding:4px 6px;">${safe(t.description)}</td>
-            <td style="padding:4px 6px;text-align:right;color:#888;">${i+2}</td>
+            <td style="padding:4px 6px;text-align:right;color:#888;" data-toc-idx="${i}">${i+2}</td>
           </tr>`).join("")}
         </table>` : ""}
 
@@ -924,7 +924,7 @@ const buildPrintHTML = (station, screen=false) => {
             + '</div>';
 
           return `
-            <div class="pg">
+            <div class="pg" data-wi-page="${ti+2}">
               ${hdr()}
               ${taskHdr}
               ${partRow}
@@ -960,9 +960,31 @@ const buildPrintHTML = (station, screen=false) => {
 <body>
   ${cover}
   ${wiPages}
-  ${!screen?'<scr'+'ipt>window.onload=()=>{setTimeout(()=>window.print(),400);}</scr'+'ipt>':""}
+  \${!screen?'<scr'+'ipt>window.onload=()=>{setTimeout(()=>window.print(),400);}<\/script>':""}
+  <script>
+  (function() {
+    var pages = document.querySelectorAll('.pg');
+    pages.forEach(function(pg, i) {
+      if(pg.hasAttribute('data-wi-page')) {
+        var realPage = i + 1;
+        pg.setAttribute('data-real-page', realPage);
+        pg.querySelectorAll('.f-center').forEach(function(el) {
+          el.textContent = 'Page ' + realPage;
+        });
+      }
+    });
+    document.querySelectorAll('[data-toc-idx]').forEach(function(cell) {
+      var idx = parseInt(cell.getAttribute('data-toc-idx'));
+      var taskPg = document.querySelector('[data-wi-page="' + (idx + 2) + '"]');
+      if(taskPg && taskPg.getAttribute('data-real-page')) {
+        cell.textContent = taskPg.getAttribute('data-real-page');
+      }
+    });
+  })();
+  </script>
 </body></html>`;
   }
+
 
 
   return `<!DOCTYPE html>
@@ -3581,6 +3603,42 @@ function LineBalance({ stations, lines }) {
 </div>
 <h2>Summary</h2>
 <div class="cards">${statCards}</div>
+<h2>Chart</h2>
+${(()=>{
+  const cMax = Math.max(taktMin||0, max?.total||0, 0.01);
+  const bW   = Math.max(18, Math.min(55, Math.floor(650/Math.max(data.length,1))-4));
+  const svgW = Math.max(680, data.length*(bW+4)+70);
+  const bars = data.map((d,i)=>{
+    const h   = d.total>0 ? Math.max(2,180*d.total/cMax) : 3;
+    const x   = 50+i*(bW+4);
+    const y   = 200-h;
+    const ot  = taktMin&&d.total>taktMin;
+    const nt  = taktMin&&d.total>taktMin*0.9;
+    const clr = d.total===0?"#e0e0e0":ot?"#e53935":nt?"#ff8f00":"#00897b";
+    const lbl = d.name.length>10?d.name.slice(0,9)+"…":d.name;
+    return '<g>'
+      +'<rect x="'+x+'" y="'+(20+y)+'" width="'+bW+'" height="'+h+'" fill="'+clr+'" rx="2"/>'
+      +(d.total>0?'<text x="'+(x+bW/2)+'" y="'+(20+y-3)+'" text-anchor="middle" font-size="7" fill="'+clr+'" font-weight="600">'+fmtTime(d.total).replace(" min","")+'</text>':"")
+      +'<text x="'+(x+bW/2)+'" y="230" text-anchor="middle" font-size="'+(bW<25?"6":"8")+'" fill="#555"'+(bW<25?' transform="rotate(-35,'+(x+bW/2)+',230)"':"")+'>'
+      +lbl+'</text></g>';
+  }).join("");
+  const taktLine = taktMin&&taktMin>0
+    ? '<line x1="50" x2="'+(svgW-10)+'" y1="'+(20+180-180*taktMin/cMax)+'" y2="'+(20+180-180*taktMin/cMax)+'" stroke="#c62828" stroke-width="2" stroke-dasharray="5,3"/>'
+      +'<text x="'+(svgW-8)+'" y="'+(20+180-180*taktMin/cMax-3)+'" text-anchor="end" font-size="8" fill="#c62828" font-weight="700">TAKT</text>' : "";
+  const avgLine = avg>0
+    ? '<line x1="50" x2="'+(svgW-10)+'" y1="'+(20+180-180*avg/cMax)+'" y2="'+(20+180-180*avg/cMax)+'" stroke="#e65100" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.8"/>' : "";
+  return '<svg width="'+svgW+'" height="250" style="display:block;max-width:100%;">'
+    +'<line x1="50" y1="20" x2="50" y2="200" stroke="#ccc" stroke-width="1"/>'
+    +'<line x1="50" y1="200" x2="'+(svgW-10)+'" y2="200" stroke="#ccc" stroke-width="1"/>'
+    +[0.25,0.5,0.75,1].map(f=>'<line x1="50" x2="'+(svgW-10)+'" y1="'+(20+180*(1-f))+'" y2="'+(20+180*(1-f))+'" stroke="#eee" stroke-width="1"/>'
+      +'<text x="46" y="'+(20+180*(1-f)+4)+'" text-anchor="end" font-size="8" fill="#aaa">'+fmtTime(cMax*f).replace(" min","")+'</text>').join("")
+    +avgLine+taktLine+bars+'</svg>'
+    +'<div style="font-size:9pt;color:#888;margin-top:4px;">'
+    +(taktMin?'<span style="color:#c62828">— — TAKT</span>&nbsp;&nbsp;':'')
+    +(avg>0?'<span style="color:#e65100">— — Avg</span>&nbsp;&nbsp;':'')
+    +(taktMin?'<span style="background:#e53935;color:white;padding:0 6px;border-radius:2px;">Over</span>&nbsp;<span style="background:#ff8f00;color:white;padding:0 6px;border-radius:2px;">Near</span>&nbsp;<span style="background:#00897b;color:white;padding:0 6px;border-radius:2px;">OK</span>':'')
+    +'</div>';
+})()}
 <h2>${isSingleStation?"Task Breakdown":"Station Breakdown"}</h2>
 <table>
   <thead><tr>
