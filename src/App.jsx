@@ -747,7 +747,7 @@ const buildPrintHTML = (station, screen=false) => {
 
   const screenStyles = screen ? `
     body { background:#4b5563; padding:32px 0; margin:0; }
-    .pg  { width:8.5in; min-height:11in; margin:0 auto 32px; padding:0.5in;
+    .pg, .wi-task-section  { width:8.5in; min-height:11in; margin:0 auto 32px; padding:0.5in;
            background:white; box-shadow:0 4px 24px rgba(0,0,0,0.4);
            display:flex; flex-direction:column; }
     .pg-body { flex:1; }
@@ -784,186 +784,169 @@ const buildPrintHTML = (station, screen=false) => {
   if(station.stationType === "wi") {
     const alignCSS = {left:"left", center:"center", right:"right"};
 
-    // Build a caption line — separate function avoids nested template literals
     const figCaption = (n, caption, align) => {
-      const a = align || "center";
-      return '<div style="font-size:8pt;color:#555;margin-top:3px;font-style:italic;text-align:' + a + ';">'
-        + '<strong>Fig. ' + n + '</strong>'
-        + (caption ? ' \u2014 ' + safe(caption) : '')
-        + '</div>';
+      const a = align||"center";
+      return '<div style="font-size:8pt;color:#555;margin-top:3px;font-style:italic;text-align:'+a+';">'
+        +'<strong>Fig. '+n+'</strong>'+(caption?' \u2014 '+safe(caption):'')+'</div>';
     };
-
     const imgTag = (src, maxW, maxH) =>
-      '<img src="' + src + '" style="max-width:' + maxW + ';height:auto;max-height:' + maxH + ';display:inline-block;border:1px solid #ccc;"/>';
+      '<img src="'+src+'" style="max-width:'+maxW+';height:auto;max-height:'+maxH+';display:inline-block;border:1px solid #ccc;"/>';
 
     const renderWiImageBlock = (images, figOffset=0) => {
       const rows = [];
       let i = 0;
       while(i < images.length) {
         const img = images[i];
-        const size = img.size || "full";
-        const figN = figOffset + i + 1;
+        const size = img.size||"full";
+        const figN = figOffset+i+1;
         const align = alignCSS[img.align||"center"];
-
-        if(size === "full") {
-          rows.push(
-            '<div style="text-align:' + align + ';margin:8px 0;page-break-inside:avoid;">'
-            + imgTag(img.src, "100%", "4.5in")
-            + figCaption(figN, img.caption, align)
-            + '</div>'
-          );
+        if(size==="full") {
+          rows.push('<div style="text-align:'+align+';margin:8px 0;page-break-inside:avoid;">'
+            +imgTag(img.src,"100%","4.5in")+figCaption(figN,img.caption,align)+'</div>');
           i++;
-
-        } else if(size === "half") {
-          const pair = images.slice(i, i+2).filter(x=>(x.size||"full")==="half");
-          if(pair.length === 2) {
-            const cells = pair.map((im, pi) =>
-              '<td style="width:50%;padding:0 4px;vertical-align:top;text-align:center;">'
-              + imgTag(im.src, "100%", "3in")
-              + figCaption(figOffset + i + pi + 1, im.caption, "center")
-              + '</td>'
-            ).join("");
-            rows.push(
-              '<table style="width:100%;border-collapse:collapse;margin:8px 0;page-break-inside:avoid;"><tr>'
-              + cells + '</tr></table>'
-            );
-            i += 2;
+        } else if(size==="half") {
+          const pair = images.slice(i,i+2).filter(x=>(x.size||"full")==="half");
+          if(pair.length===2) {
+            const cells = pair.map((im,pi)=>'<td style="width:50%;padding:0 4px;vertical-align:top;text-align:center;">'
+              +imgTag(im.src,"100%","3in")+figCaption(figOffset+i+pi+1,im.caption,"center")+'</td>').join("");
+            rows.push('<table style="width:100%;border-collapse:collapse;margin:8px 0;page-break-inside:avoid;"><tr>'+cells+'</tr></table>');
+            i+=2;
           } else {
-            // Lone half — render at 50% centered
-            rows.push(
-              '<div style="text-align:center;margin:8px 0;page-break-inside:avoid;">'
-              + imgTag(img.src, "50%", "3in")
-              + figCaption(figN, img.caption, "center")
-              + '</div>'
-            );
+            rows.push('<div style="text-align:center;margin:8px 0;page-break-inside:avoid;">'
+              +imgTag(img.src,"50%","3in")+figCaption(figN,img.caption,"center")+'</div>');
             i++;
           }
-
-        } else { // third
-          const trio = images.slice(i, i+3).filter(x=>(x.size||"full")==="third");
-          const cols = Math.min(trio.length, 3);
-          const pct = Math.floor(100/cols) + "%";
-          const cells = trio.map((im, pi) =>
-            '<td style="width:' + pct + ';padding:0 4px;vertical-align:top;text-align:center;">'
-            + imgTag(im.src, "100%", "2.5in")
-            + figCaption(figOffset + i + pi + 1, im.caption, "center")
-            + '</td>'
-          ).join("");
-          rows.push(
-            '<table style="width:100%;border-collapse:collapse;margin:8px 0;page-break-inside:avoid;"><tr>'
-            + cells + '</tr></table>'
-          );
-          i += cols;
+        } else {
+          const trio = images.slice(i,i+3).filter(x=>(x.size||"full")==="third");
+          const cols = Math.min(trio.length,3);
+          const pct = Math.floor(100/cols)+"%";
+          const cells = trio.map((im,pi)=>'<td style="width:'+pct+';padding:0 4px;vertical-align:top;text-align:center;">'
+            +imgTag(im.src,"100%","2.5in")+figCaption(figOffset+i+pi+1,im.caption,"center")+'</td>').join("");
+          rows.push('<table style="width:100%;border-collapse:collapse;margin:8px 0;page-break-inside:avoid;"><tr>'+cells+'</tr></table>');
+          i+=cols;
         }
       }
       return rows.join("\n");
     };
 
     const renderCustomField = (cf) => {
-      if(cf.cols === 2) {
-        return `
-          <table class="bt" style="margin-bottom:8px;">
-            <tr>
-              <td style="width:50%;border-right:2px solid #aaa;vertical-align:top;padding:0;">
-                <div class="lbl" style="padding:4px 8px;">${safe(cf.label||"")}</div>
-                <div style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">${rich(cf.value||"")}</div>
-              </td>
-              <td style="width:50%;vertical-align:top;padding:0;">
-                <div class="lbl" style="padding:4px 8px;">${safe(cf.label2||"")}</div>
-                <div style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">${rich(cf.value2||"")}</div>
-              </td>
-            </tr>
-          </table>`;
+      if(cf.cols===2) {
+        return '<table class="bt" style="margin-bottom:8px;"><tr>'
+          +'<td style="width:50%;border-right:2px solid #aaa;vertical-align:top;padding:0;">'
+          +'<div class="lbl" style="padding:4px 8px;">'+safe(cf.label||"")+'</div>'
+          +'<div style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">'+rich(cf.value||"")+'</div></td>'
+          +'<td style="width:50%;vertical-align:top;padding:0;">'
+          +'<div class="lbl" style="padding:4px 8px;">'+safe(cf.label2||"")+'</div>'
+          +'<div style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">'+rich(cf.value2||"")+'</div></td>'
+          +'</tr></table>';
       }
-      return `
-        <table class="bt" style="margin-bottom:8px;">
-          <tr><td class="lbl">${safe(cf.label||"")}</td></tr>
-          <tr><td style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">${rich(cf.value||"")}</td></tr>
-        </table>`;
+      return '<table class="bt" style="margin-bottom:8px;">'
+        +'<tr><td class="lbl">'+safe(cf.label||"")+'</td></tr>'
+        +'<tr><td style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">'+rich(cf.value||"")+'</td></tr>'
+        +'</table>';
     };
 
-    const wiPages = station.tasks.length === 0
-      ? `<div class="pg"><div style="padding:40px;text-align:center;color:#aaa;font-size:12pt;">No tasks added yet.</div></div>`
+    // Build task pages — each task is a section with a clear page-break before it
+    const wiPages = station.tasks.length===0
+      ? '<div style="padding:40px;text-align:center;color:#aaa;font-size:12pt;">No tasks added yet.</div>'
       : station.tasks.map((task, ti) => {
-          const images = (task.wiImages && task.wiImages.length > 0)
+          const images = (task.wiImages&&task.wiImages.length>0)
             ? task.wiImages
             : [task.primaryImage&&{id:"p",src:task.primaryImage,caption:"",size:"full",align:"center"},
                task.secondaryImage&&{id:"s",src:task.secondaryImage,caption:"",size:"half",align:"center"}]
               .filter(Boolean);
 
-          const partRow = (task.partNo||task.partDesc) ? `
-            <table class="bt" style="margin-bottom:8px;">
-              ${task.partNo?`<tr><td class="lbl" style="width:130px">PART NO</td><td style="padding:4px 8px;">${safe(task.partNo)}</td></tr>`:""}
-              ${task.partDesc?`<tr><td class="lbl">PART DESCRIPTION</td><td style="padding:4px 8px;">${safe(task.partDesc)}</td></tr>`:""}
-            </table>` : "";
+          const layout = station.wiLayout||"stacked";
+          const taskCT = task.cycleTime ? parseTime(task.cycleTime) : 0;
 
-          const wiBlock = task.workInstructions ? `
-            <table class="bt" style="margin-bottom:8px;">
-              <tr><td class="lbl">WORK INSTRUCTIONS</td></tr>
-              <tr><td style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">${rich(task.workInstructions)}</td></tr>
-            </table>` : "";
+          const partRow = (task.partNo||task.partDesc) ? '<table class="bt" style="margin-bottom:8px;">'
+            +(task.partNo?'<tr><td class="lbl" style="width:130px">PART NO</td><td style="padding:4px 8px;">'+safe(task.partNo)+'</td></tr>':"")
+            +(task.partDesc?'<tr><td class="lbl">PART DESCRIPTION</td><td style="padding:4px 8px;">'+safe(task.partDesc)+'</td></tr>':"")
+            +'</table>' : "";
 
-          // Legacy setup notes support
-          const setupBlock = task.setupNotes ? `
-            <table class="bt" style="margin-bottom:8px;">
-              <tr><td class="lbl">${safe(task.setupLabel||"SETUP INSTRUCTIONS")}</td></tr>
-              <tr><td style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">${rich(task.setupNotes)}</td></tr>
-            </table>` : "";
+          const wiBlock = task.workInstructions ? '<table class="bt" style="margin-bottom:8px;">'
+            +'<tr><td class="lbl">WORK INSTRUCTIONS</td></tr>'
+            +'<tr><td style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">'+rich(task.workInstructions)+'</td></tr>'
+            +'</table>' : "";
+
+          const setupBlock = task.setupNotes ? '<table class="bt" style="margin-bottom:8px;">'
+            +'<tr><td class="lbl">'+safe(task.setupLabel||"SETUP INSTRUCTIONS")+'</td></tr>'
+            +'<tr><td style="padding:7px 9px;font-size:9.5pt;line-height:1.6;">'+rich(task.setupNotes)+'</td></tr>'
+            +'</table>' : "";
 
           const customBlocks = (task.customFields||[])
             .filter(cf=>cf.label||cf.value||cf.label2||cf.value2)
             .map(cf=>renderCustomField(cf)).join("");
 
-          const taskCT = task.cycleTime ? parseTime(task.cycleTime) : 0;
-          const taskHdr = '<div style="background:#00897b;color:white;padding:6px 10px;font-weight:700;font-size:12pt;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">'
-            + '<span>' + safe(task.description||"Work Instruction") + '</span>'
-            + '<span style="font-size:9pt;opacity:0.85;font-weight:400;display:flex;gap:12px;">'
-            + (task.partNo ? '<span>P/N: ' + safe(task.partNo) + '</span>' : '')
-            + (taskCT > 0 ? '<span>⏱ ' + fmtTime(taskCT) + '</span>' : '')
-            + '</span>'
-            + '</div>';
+          let bodyHtml = "";
+          if(layout==="twocol"&&images.length>=2) {
+            bodyHtml = '<table style="width:100%;border-collapse:collapse;margin-bottom:8px;"><tr>'
+              +'<td style="width:50%;padding-right:8px;vertical-align:top;">'+renderWiImageBlock([images[0]])+'</td>'
+              +'<td style="width:50%;padding-left:8px;vertical-align:top;">'+renderWiImageBlock([images[1]],1)+'</td>'
+              +'</tr></table>'
+              +(images.length>2?renderWiImageBlock(images.slice(2),2):"")
+              +setupBlock+wiBlock+customBlocks;
+          } else if(layout==="twocol"&&images.length===1) {
+            bodyHtml = '<table style="width:100%;border-collapse:collapse;margin-bottom:8px;"><tr>'
+              +'<td style="width:50%;padding-right:8px;vertical-align:top;">'+renderWiImageBlock(images)+'</td>'
+              +'<td style="width:50%;padding-left:8px;vertical-align:top;">'+setupBlock+wiBlock+customBlocks+'</td>'
+              +'</tr></table>';
+          } else {
+            bodyHtml = renderWiImageBlock(images.slice(0,1))+setupBlock+wiBlock+customBlocks
+              +(images.length>1?renderWiImageBlock(images.slice(1),1):"");
+          }
 
-          const contBanner = '<tr class="wi-cont-row"><td class="wi-cont-banner">'
-            + '&#8627; ' + safe(task.description||"Work Instruction") + ' continued'
-            + (task.partNo ? ' &nbsp;|&nbsp; P/N: ' + safe(task.partNo) : '')
-            + '</td></tr>';
+          // Task header — teal bar with title, part no, cycle time
+          const taskHdr = '<div class="wi-task-hdr">'
+            +'<span>'+safe(task.description||"Work Instruction")+'</span>'
+            +'<span style="font-size:9pt;opacity:0.85;font-weight:400;display:flex;gap:12px;">'
+            +(task.partNo?'<span>P/N: '+safe(task.partNo)+'</span>':"")
+            +(taskCT>0?'<span>&#9201; '+fmtTime(taskCT)+'</span>':"")
+            +'</span></div>';
 
-          return `
-            <div class="pg" data-wi-page="${ti+2}">
-              ${hdr()}
-              ${taskHdr}
-              ${partRow}
-              <table class="wi-body-table" cellspacing="0">
-                <thead>
-                  ${contBanner}
-                </thead>
-                <tbody><tr><td class="wi-body-cell">
-                  ${renderWiImageBlock(images)}
-                  ${setupBlock}${wiBlock}${customBlocks}
-                </td></tr></tbody>
-              </table>
-              ${screenFtr(ti+2)}
-            </div>`;
+          // Continuation banner — repeats via thead on overflow pages
+          const contBanner = '<thead class="wi-thead"><tr><td colspan="1" class="wi-cont-banner">'
+            +'&#8627; '+safe(task.description||"Work Instruction")+' continued'
+            +(task.partNo?' &nbsp;|&nbsp; P/N: '+safe(task.partNo):'')
+            +'</td></tr></thead>';
+
+          return '<div class="wi-task-section" data-wi-page="'+(ti+2)+'">'
+            +hdr()
+            +taskHdr
+            +partRow
+            +'<table class="wi-content-table" cellspacing="0">'
+            +contBanner
+            +'<tbody><tr><td class="wi-body-cell">'+bodyHtml+'</td></tr></tbody>'
+            +'</table>'
+            +screenFtr(ti+2)
+            +'</div>';
         }).join("\n");
+
+    const printCSS = !screen ? `
+    @page {
+      size: 8.5in 11in portrait;
+      margin: 0.5in 0.5in 0.6in 0.5in;
+    }
+    body { margin:0; padding:0; }
+    .wi-task-section { page-break-before:always; }
+    .cover-pg         { page-break-before:auto; }
+    .wi-content-table thead { display:table-header-group; }
+    .wi-thead { display:table-header-group; }
+    .wi-cont-banner { display:table-cell; }
+    .footer { display:none; }` : `
+    .wi-cont-banner { display:none; }`;
 
     return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><title>${pdfName(station)}</title>
 <style>
   * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important;
       box-sizing:border-box; font-family:Arial,sans-serif; }
-  body { font-size:10pt; margin:0; padding:0; }
+  body { font-size:10pt; }
   ${screenStyles}
-  ${!screen ? `@page { size:8.5in 11in portrait; margin:0.5in 0.5in 0.6in 0.5in; }
-  .pg       { page-break-before:always; padding:0.35in; }
-  .cover-pg { page-break-before:auto; }` : ""}
+  ${printCSS}
   .ht{width:100%;border-collapse:collapse;} .ht td{border:1px solid #888;padding:3px 5px;font-size:9pt;}
   .logo{width:62px;background:#00897b !important;color:white !important;font-size:17pt;font-weight:900;text-align:center;vertical-align:middle;}
-  .wi-body-table { width:100%; border-collapse:collapse; }
-  .wi-body-table thead { display:table-header-group; }
-  .wi-body-cell { padding:0; vertical-align:top; }
-  .wi-cont-row { display:${screen?"none":"table-row"}; }
-  .wi-cont-banner { background:#e0f2f1 !important; color:#00695c; font-size:8.5pt;
-                    padding:4px 8px; border:1px solid #80cbc4; font-style:italic; }  .title{text-align:center;font-size:15pt;font-weight:bold;background:#00897b !important;color:white !important;padding:6px;}
+  .title{text-align:center;font-size:15pt;font-weight:bold;background:#00897b !important;color:white !important;padding:6px;}
   .lbl{font-weight:bold;background:#e0e0e0 !important;}
   .task-lbl{font-weight:bold;background:#b2dfdb !important;color:#00695c;}
   .task-desc{background:#e0f2f1 !important;font-size:9pt;}
@@ -971,39 +954,41 @@ const buildPrintHTML = (station, screen=false) => {
   .sh{background:#e0e0e0 !important;font-weight:bold;text-align:center;padding:4px 6px;}
   .col-hdr{background:#00897b !important;color:white !important;font-weight:bold;padding:5px 6px;}
   .content{padding:5px 7px;min-height:20px;} .vtop{vertical-align:top;}
-  .footer{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding-top:6px;font-size:8pt;color:#555;border-top:2px solid #00897b;}
+  .footer{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding-top:6px;
+          font-size:8pt;color:#555;border-top:2px solid #00897b;}
   .f-left{text-align:left;} .f-center{text-align:center;font-weight:700;color:#00695c;font-size:9pt;} .f-right{text-align:right;}
-  .wi-task-hdr{background:#00897b !important;color:white !important;padding:6px 10px;font-weight:700;font-size:12pt;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;}
+  .wi-task-hdr{background:#00897b !important;color:white !important;padding:6px 10px;font-weight:700;
+               font-size:12pt;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;}
+  .wi-content-table{width:100%;border-collapse:collapse;}
+  .wi-body-cell{padding:0;vertical-align:top;}
+  .wi-cont-banner{background:#e0f2f1 !important;color:#00695c;font-size:8.5pt;
+                  padding:4px 8px;border:1px solid #80cbc4;font-style:italic;width:100%;}
 </style></head>
 <body>
   ${cover}
   ${wiPages}
-</body>
   <script>
   (function() {
-    var pages = document.querySelectorAll('.pg');
-    pages.forEach(function(pg, i) {
-      if(pg.hasAttribute('data-wi-page')) {
-        var realPage = i + 1;
-        pg.setAttribute('data-real-page', realPage);
-        pg.querySelectorAll('.f-center').forEach(function(el) {
-          el.textContent = 'Page ' + realPage;
-        });
-      }
+    var sects = document.querySelectorAll('[data-wi-page]');
+    sects.forEach(function(sect, i) {
+      var realPage = i + 2; // cover is page 1
+      sect.setAttribute('data-real-page', realPage);
+      sect.querySelectorAll('.f-center').forEach(function(el) {
+        el.textContent = 'Page ' + realPage;
+      });
     });
     document.querySelectorAll('[data-toc-idx]').forEach(function(cell) {
       var idx = parseInt(cell.getAttribute('data-toc-idx'));
-      var taskPg = document.querySelector('[data-wi-page="' + (idx + 2) + '"]');
-      if(taskPg && taskPg.getAttribute('data-real-page')) {
-        cell.textContent = taskPg.getAttribute('data-real-page');
+      var sect = document.querySelector('[data-wi-page="'+(idx+2)+'"]');
+      if(sect && sect.getAttribute('data-real-page')) {
+        cell.textContent = sect.getAttribute('data-real-page');
       }
     });
   })();
   </script>
   ${!screen ? '<scr'+'ipt>window.onload=()=>{setTimeout(()=>window.print(),400);}<'+'/script>' : ""}
-</html>`;
+</body></html>`;
   }
-
 
 
   return `<!DOCTYPE html>
