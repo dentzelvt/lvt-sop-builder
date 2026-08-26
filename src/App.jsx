@@ -941,17 +941,11 @@ const buildPrintHTML = (station, screen=false) => {
 <style>
   * { -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important;
       box-sizing:border-box; font-family:Arial,sans-serif; }
-  body { font-size:10pt; }
+  body { font-size:10pt; margin:0; padding:0; }
   ${screenStyles}
-  @page {
-    size: 8.5in 11in portrait;
-    margin-top:   0.5in;
-    margin-left:  0.5in;
-    margin-right: 0.5in;
-    margin-bottom:0.6in;
-  }
-  .pg { page-break-before:always; }
-  .cover-pg { page-break-before:auto; }
+  ${!screen ? `@page { size:8.5in 11in portrait; margin:0.5in 0.5in 0.6in 0.5in; }
+  .pg       { page-break-before:always; padding:0.35in; }
+  .cover-pg { page-break-before:auto; }` : ""}
   .ht{width:100%;border-collapse:collapse;} .ht td{border:1px solid #888;padding:3px 5px;font-size:9pt;}
   .logo{width:62px;background:#00897b !important;color:white !important;font-size:17pt;font-weight:900;text-align:center;vertical-align:middle;}
   .title{text-align:center;font-size:15pt;font-weight:bold;background:#00897b !important;color:white !important;padding:6px;}
