@@ -923,15 +923,25 @@ const buildPrintHTML = (station, screen=false) => {
             + '</span>'
             + '</div>';
 
+          const contBanner = '<tr class="wi-cont-row"><td class="wi-cont-banner">'
+            + '&#8627; ' + safe(task.description||"Work Instruction") + ' continued'
+            + (task.partNo ? ' &nbsp;|&nbsp; P/N: ' + safe(task.partNo) : '')
+            + '</td></tr>';
+
           return `
             <div class="pg" data-wi-page="${ti+2}">
               ${hdr()}
               ${taskHdr}
               ${partRow}
-              <div class="pg-body">
-                ${renderWiImageBlock(images)}
-                ${setupBlock}${wiBlock}${customBlocks}
-              </div>
+              <table class="wi-body-table" cellspacing="0">
+                <thead>
+                  ${contBanner}
+                </thead>
+                <tbody><tr><td class="wi-body-cell">
+                  ${renderWiImageBlock(images)}
+                  ${setupBlock}${wiBlock}${customBlocks}
+                </td></tr></tbody>
+              </table>
               ${screenFtr(ti+2)}
             </div>`;
         }).join("\n");
@@ -948,7 +958,12 @@ const buildPrintHTML = (station, screen=false) => {
   .cover-pg { page-break-before:auto; }` : ""}
   .ht{width:100%;border-collapse:collapse;} .ht td{border:1px solid #888;padding:3px 5px;font-size:9pt;}
   .logo{width:62px;background:#00897b !important;color:white !important;font-size:17pt;font-weight:900;text-align:center;vertical-align:middle;}
-  .title{text-align:center;font-size:15pt;font-weight:bold;background:#00897b !important;color:white !important;padding:6px;}
+  .wi-body-table { width:100%; border-collapse:collapse; }
+  .wi-body-table thead { display:table-header-group; }
+  .wi-body-cell { padding:0; vertical-align:top; }
+  .wi-cont-row { display:${screen?"none":"table-row"}; }
+  .wi-cont-banner { background:#e0f2f1 !important; color:#00695c; font-size:8.5pt;
+                    padding:4px 8px; border:1px solid #80cbc4; font-style:italic; }  .title{text-align:center;font-size:15pt;font-weight:bold;background:#00897b !important;color:white !important;padding:6px;}
   .lbl{font-weight:bold;background:#e0e0e0 !important;}
   .task-lbl{font-weight:bold;background:#b2dfdb !important;color:#00695c;}
   .task-desc{background:#e0f2f1 !important;font-size:9pt;}
