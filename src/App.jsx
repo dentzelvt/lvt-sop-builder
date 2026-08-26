@@ -960,7 +960,7 @@ const buildPrintHTML = (station, screen=false) => {
 <body>
   ${cover}
   ${wiPages}
-  \${!screen?'<scr'+'ipt>window.onload=()=>{setTimeout(()=>window.print(),400);}<\/script>':""}
+</body>
   <script>
   (function() {
     var pages = document.querySelectorAll('.pg');
@@ -982,7 +982,8 @@ const buildPrintHTML = (station, screen=false) => {
     });
   })();
   </script>
-</body></html>`;
+  ${!screen ? '<scr'+'ipt>window.onload=()=>{setTimeout(()=>window.print(),400);}<'+'/script>' : ""}
+</html>`;
   }
 
 
