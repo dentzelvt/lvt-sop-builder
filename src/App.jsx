@@ -1045,6 +1045,12 @@ const pdfName = (station) =>
 const exportPDF = (station) => {
   const iframe = document.createElement("iframe");
   iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+  // srcdoc must be set, and onload attached, BEFORE the iframe is inserted into
+  // the document. Appending an iframe with no srcdoc yet loads "about:blank"
+  // first and fires its own load event — if onload were already attached at
+  // that point, it fires for the blank page (printing nothing) instead of
+  // waiting for the real content, which is what produced a blank PDF.
+  iframe.srcdoc = buildPrintHTML(station, false);
   iframe.onload = () => {
     const w = iframe.contentWindow;
     w.onafterprint = () => iframe.remove();
@@ -1052,7 +1058,6 @@ const exportPDF = (station) => {
     w.print();
   };
   document.body.appendChild(iframe);
-  iframe.srcdoc = buildPrintHTML(station, false);
 };
 
 // ─── SOP Preview ──────────────────────────────────────────────────────────────
