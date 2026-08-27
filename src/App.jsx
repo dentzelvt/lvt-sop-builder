@@ -1042,7 +1042,13 @@ const pdfName = (station) =>
 const exportPDF = (station) => {
   const win=window.open("","_blank");
   if(!win){ alert("Pop-up blocked — allow pop-ups for this site and try again."); return; }
-  win.document.open(); win.document.write(buildPrintHTML(station, false)); win.document.close();
+  // Navigate to a Blob URL instead of document.write() — Chrome only finishes
+  // resolving @page margin-box footers (which page they land on) once the
+  // document reaches a real load event; document.write() into a popup never
+  // fires one properly, so the footer only ever showed up on the last page.
+  const url = URL.createObjectURL(new Blob([buildPrintHTML(station, false)], {type:"text/html"}));
+  win.location.href = url;
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 };
 
 // ─── SOP Preview ──────────────────────────────────────────────────────────────
