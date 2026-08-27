@@ -992,7 +992,6 @@ const buildPrintHTML = (station, screen=false) => {
     });
   })();
   </script>
-  ${!screen ? '<scr'+'ipt>window.onload=()=>{setTimeout(()=>window.print(),400);}<'+'/script>' : ""}
 </body></html>`;
   }
 
@@ -1030,7 +1029,6 @@ const buildPrintHTML = (station, screen=false) => {
 <body>
   ${cover}
   ${taskPages}
-  ${!screen ? '<scr'+'ipt>window.onload=()=>{setTimeout(()=>window.print(),400);}</scr'+'ipt>' : ""}
 </body></html>`;
 };
 
@@ -1039,16 +1037,22 @@ const buildPrintHTML = (station, screen=false) => {
 const pdfName = (station) =>
   [station.sopId, station.stationDesc].filter(Boolean).join("_").replace(/[^a-zA-Z0-9_\-]/g,"_") || "SOP";
 
+// Print via a hidden same-page iframe rather than a popup. A popup fed through
+// document.write() (or navigated to a Blob URL) is an edge case Chrome's print
+// pipeline handles inconsistently — @page margin-box footers and even margins
+// can drop out entirely. An iframe loaded normally via srcdoc is a standard
+// document load, so @page CSS resolves the same way it does for any page.
 const exportPDF = (station) => {
-  const win=window.open("","_blank");
-  if(!win){ alert("Pop-up blocked — allow pop-ups for this site and try again."); return; }
-  // Navigate to a Blob URL instead of document.write() — Chrome only finishes
-  // resolving @page margin-box footers (which page they land on) once the
-  // document reaches a real load event; document.write() into a popup never
-  // fires one properly, so the footer only ever showed up on the last page.
-  const url = URL.createObjectURL(new Blob([buildPrintHTML(station, false)], {type:"text/html"}));
-  win.location.href = url;
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  const iframe = document.createElement("iframe");
+  iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+  iframe.onload = () => {
+    const w = iframe.contentWindow;
+    w.onafterprint = () => iframe.remove();
+    w.focus();
+    w.print();
+  };
+  document.body.appendChild(iframe);
+  iframe.srcdoc = buildPrintHTML(station, false);
 };
 
 // ─── SOP Preview ──────────────────────────────────────────────────────────────
