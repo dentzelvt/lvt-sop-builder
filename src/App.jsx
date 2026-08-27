@@ -1044,7 +1044,12 @@ const pdfName = (station) =>
 // document load, so @page CSS resolves the same way it does for any page.
 const exportPDF = (station) => {
   const iframe = document.createElement("iframe");
-  iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+  // Interactive Chrome sizes the printed page from the iframe's own viewport,
+  // not from the @page "size" rule (only headless Chrome respects that) — a
+  // 0x0 iframe left no room to compute margins/margin-box content, so both
+  // silently dropped even though the dialog opened and regular content showed.
+  // Sized to match the 8.5x11in page and moved off-screen instead of hidden.
+  iframe.style.cssText = "position:fixed;top:0;left:-10000px;width:8.5in;height:11in;border:0;";
   // srcdoc must be set, and onload attached, BEFORE the iframe is inserted into
   // the document. Appending an iframe with no srcdoc yet loads "about:blank"
   // first and fires its own load event — if onload were already attached at
