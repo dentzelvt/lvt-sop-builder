@@ -925,7 +925,13 @@ const buildPrintHTML = (station, screen=false) => {
     const printCSS = !screen ? `
     @page {
       size: 8.5in 11in portrait;
-      margin: 0.5in 0.5in 0.6in 0.5in;
+      margin-top:   0.5in;
+      margin-left:  0.5in;
+      margin-right: 0.5in;
+      margin-bottom:0.6in;
+      @bottom-left   { content:"${fLeft}";  font-family:Arial,sans-serif; font-size:7.5pt; color:#555; border-top:1.5pt solid #00897b; padding-top:3pt; vertical-align:top; }
+      @bottom-center { content:"Page " counter(page) " of " counter(pages); font-family:Arial,sans-serif; font-size:9pt; font-weight:bold; color:#00695c; border-top:1.5pt solid #00897b; padding-top:3pt; vertical-align:top; }
+      @bottom-right  { content:"${fRight}"; font-family:Arial,sans-serif; font-size:7.5pt; color:#555; border-top:1.5pt solid #00897b; padding-top:3pt; vertical-align:top; text-align:right; }
     }
     body { margin:0; padding:0; }
     .wi-task-section { page-break-before:always; }
